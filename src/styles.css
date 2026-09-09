@@ -1,0 +1,105 @@
+:root{
+  --accent:#c8f527;
+  --ink:#ffffff;
+  --dim:rgba(255,255,255,.55);
+  --dimmer:rgba(255,255,255,.32);
+  --panel:rgba(20,24,26,.55);
+  --stroke:rgba(255,255,255,.18);
+  --font:"Inter","Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#0d1113;overflow:hidden;font-family:var(--font);color:var(--ink)}
+#app{position:fixed;inset:0}
+canvas#scene{position:absolute;inset:0;width:100%;height:100%;display:block}
+
+.hud{position:absolute;inset:0;pointer-events:none;user-select:none;
+  text-shadow:0 1px 12px rgba(0,0,0,.45)}
+.hud::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(120% 95% at 50% 42%,transparent 45%,rgba(8,12,14,.34) 100%)}
+.hud.hidden{opacity:0}
+.hud{transition:opacity .4s ease}
+
+.label{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);font-weight:500}
+.label.small{font-size:10px;margin-top:6px}
+.dim{color:var(--dimmer)}
+.accent{color:var(--accent)}
+
+/* top left cluster */
+.hud-topleft{position:absolute;top:26px;left:34px;display:flex;align-items:flex-start;gap:26px}
+.hud-topleft .divider{width:1px;height:64px;background:var(--stroke);margin-top:4px}
+.stat .big{font-size:56px;line-height:.95;font-weight:300;letter-spacing:-.02em;margin-top:8px;font-style:italic}
+.stat .big .sub{font-size:20px;font-style:normal;color:var(--dim);margin-left:4px;font-weight:400}
+.stat.wide{min-width:230px}
+.time{font-size:40px;font-weight:300;letter-spacing:-.01em;margin-top:6px;font-variant-numeric:tabular-nums}
+
+/* top right chips */
+.hud-topright{position:absolute;top:28px;right:34px;display:flex;gap:10px;pointer-events:auto}
+.chip{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--stroke);
+  border-radius:10px;padding:10px 14px;color:var(--ink);font:inherit;font-size:12px;letter-spacing:.14em;
+  text-transform:uppercase;backdrop-filter:blur(8px);cursor:pointer}
+.chip:hover{background:rgba(40,46,50,.7)}
+.chip .icon{opacity:.75;font-size:13px}
+kbd{font:inherit;font-size:10px;letter-spacing:.1em;border:1px solid var(--stroke);border-radius:5px;
+  padding:3px 7px;color:var(--dim);background:rgba(255,255,255,.04)}
+kbd.wide{padding:3px 12px}
+
+/* bottom right speed */
+.hud-bottomright{position:absolute;right:34px;bottom:64px;width:400px;text-align:right}
+.throttlebar{position:relative;height:22px;overflow:hidden;margin-bottom:8px}
+#throttleFill{position:absolute;inset:0;
+  background:linear-gradient(90deg,var(--accent) 0 85%,#e0472c 85% 100%);
+  -webkit-mask:repeating-linear-gradient(90deg,#000 0 6px,transparent 6px 10px);
+  mask:repeating-linear-gradient(90deg,#000 0 6px,transparent 6px 10px);
+  clip-path:inset(0 100% 0 0);transition:clip-path .05s linear}
+.speedrow{display:flex;align-items:flex-end;justify-content:flex-end;gap:22px;
+  border-bottom:1px solid var(--stroke);padding-bottom:12px}
+.gearbox{text-align:left;padding-right:22px;border-right:1px solid var(--stroke)}
+.gear{font-size:44px;font-weight:300;font-style:italic;line-height:1}
+.speedbox{display:flex;align-items:baseline;gap:8px}
+.speed{font-size:96px;font-weight:200;letter-spacing:-.04em;line-height:.9;font-variant-numeric:tabular-nums}
+.unit{font-size:12px;letter-spacing:.16em;color:var(--dim)}
+.assistrow{display:flex;justify-content:space-between;margin-top:10px;font-size:10px;
+  letter-spacing:.18em;color:var(--dim)}
+
+/* bottom left minimap */
+.hud-bottomleft{position:absolute;left:40px;bottom:74px;width:220px;text-align:center}
+#minimap{width:200px;height:200px;display:block;margin:0 auto}
+.trackname{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);margin-top:8px}
+
+/* key legend */
+.hud-keys{position:absolute;left:0;right:0;bottom:0;display:flex;gap:26px;justify-content:flex-start;
+  padding:14px 40px;border-top:1px solid rgba(255,255,255,.1);font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--dim)}
+.hud-keys span{display:flex;align-items:center;gap:6px}
+
+.center-msg{position:absolute;left:0;right:0;top:34%;text-align:center;font-size:104px;font-weight:200;
+  font-style:italic;letter-spacing:-.03em;opacity:0;transition:opacity .18s ease}
+.center-msg.show{opacity:1}
+.center-msg.small{font-size:44px;letter-spacing:.02em;font-style:normal}
+
+/* overlays */
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(120% 90% at 50% 0%,rgba(18,26,30,.72),rgba(8,11,13,.93));
+  backdrop-filter:blur(10px);z-index:5}
+.overlay.hidden{display:none}
+.panel{width:min(560px,86vw);text-align:center;padding:40px 44px;border:1px solid var(--stroke);
+  border-radius:18px;background:rgba(16,20,22,.6)}
+.eyebrow{font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--accent)}
+.panel h1{font-size:44px;font-weight:250;letter-spacing:-.02em;margin:10px 0 6px}
+.lede{color:var(--dim);font-size:13px;letter-spacing:.06em;margin:0 0 22px}
+.btn{margin-top:8px;pointer-events:auto;background:var(--accent);color:#101315;border:0;border-radius:10px;
+  padding:14px 34px;font:inherit;font-size:13px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;cursor:pointer}
+.btn:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--stroke);margin-left:10px}
+.hint{margin-top:22px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dimmer)}
+.results{margin:0 0 22px;width:100%;border-collapse:collapse;font-size:13px}
+.results td{padding:9px 6px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;color:var(--dim)}
+.results td:first-child{width:38px;color:var(--ink);font-style:italic;font-size:17px}
+.results td:last-child{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+.results tr.you td{color:var(--accent)}
+.swatch{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:9px;vertical-align:middle}
+
+@media (max-width:900px){
+  .speed{font-size:64px}.stat .big{font-size:40px}.time{font-size:28px}
+  .hud-bottomleft{display:none}.hud-keys{display:none}
+}
