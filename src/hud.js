@@ -8,6 +8,7 @@ export class Hud {
       root: $('hud'), pos: $('pos'), posTotal: $('posTotal'), lap: $('lap'), lapTotal: $('lapTotal'),
       raceTime: $('raceTime'), bestLap: $('bestLap'), speed: $('speed'), gear: $('gear'),
       throttle: $('throttleFill'), camName: $('camName'), msg: $('centerMsg'),
+      tcState: $('tcState'), absState: $('absState'),
     };
     this.msgTimer = 0;
   }
@@ -36,6 +37,8 @@ export class Hud {
     this.el.bestLap.classList.toggle('dim', p.best === null);
     this.el.speed.textContent = Math.round(vehicle.speedKmh);
     this.el.gear.textContent = vehicle.reverse ? 'R' : vehicle.gear;
+    this.el.tcState.textContent = `TC ${vehicle.tc ? 'ON' : 'OFF'}`;
+    this.el.absState.textContent = `ABS ${vehicle.abs ? 'ON' : 'OFF'}`;
     const rev = Math.max(0.015, Math.min(1, (vehicle.rpm - 900) / 6900));
     this.el.throttle.style.clipPath = `inset(0 ${(1 - rev) * 100}% 0 0)`;
 

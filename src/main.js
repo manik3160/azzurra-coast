@@ -3,40 +3,52 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { buildTrack, ROAD_HALF } from './track.js';
 import { buildScenery } from './scenery.js';
 import { Vehicle } from './vehicle.js';
-import { AIDriver, AI_PROFILES } from './ai.js';
+import { RemoteVehicle } from './remoteVehicle.js';
+import { AIDriver, makeProfiles } from './ai.js';
 import { Race, gridSlots, nearestIndex, formatTime } from './race.js';
 import { ChaseCamera } from './camera.js';
 import { Input } from './input.js';
 import { Hud } from './hud.js';
 import { Minimap } from './minimap.js';
+import { Menu } from './ui/menu.js';
+import { settings, saveSettings, skillValue, QUALITY_PRESETS } from './settings.js';
+import { isConfigured as netAvailable } from './net/supabase.js';
+import { Lobby, randomCode } from './net/lobby.js';
+import { packCar } from './net/snapshot.js';
+import { leaderboardEnabled, submitLapTime, fetchTopTimes } from './leaderboard.js';
 
-const TOTAL_LAPS = 3;
 const DEBUG = new URLSearchParams(location.search).has('debug');
+const NET_HZ = 10;
 
 const canvas = document.getElementById('scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xc6d4d6, 210, 1150);
-
 const camera = new THREE.PerspectiveCamera(64, 1, 0.3, 4000);
 scene.add(camera);
 
 const hemi = new THREE.HemisphereLight(0xdff0ff, 0x6b7a55, 1.05);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff4e2, 1.55);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.near = 1;
 sun.shadow.camera.far = 320;
 const SH = 90;
 Object.assign(sun.shadow.camera, { left: -SH, right: SH, top: SH, bottom: -SH });
 sun.shadow.bias = -0.0009;
 scene.add(sun, sun.target);
+
+function applyQuality(q) {
+  const preset = QUALITY_PRESETS[q] ?? QUALITY_PRESETS.high;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio));
+  renderer.shadowMap.enabled = preset.shadows;
+  sun.castShadow = preset.shadows;
+  sun.shadow.mapSize.set(preset.shadowMapSize, preset.shadowMapSize);
+  scene.fog = new THREE.Fog(0xc6d4d6, preset.fogFar * 0.18, preset.fogFar);
+  return preset;
+}
+const bootQuality = applyQuality(settings.quality);
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -48,66 +60,268 @@ window.addEventListener('resize', resize);
 resize();
 
 // ---------------------------------------------------------------- boot
-const state = {
-  phase: 'loading',   // loading | ready | countdown | racing | paused | finished
-  countdown: 0,
-};
-
-let world, track, race, chase, hud, minimap, input, player, entries = [];
+const state = { phase: 'menu', countdown: 0 };
 
 await RAPIER.init();
-world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
 world.timestep = 1 / 120;
 
-track = buildTrack(scene, world, RAPIER);
-buildScenery(scene, track);
+const track = buildTrack(scene, world, RAPIER);
+buildScenery(scene, track, bootQuality);
 
-const slots = gridSlots(track, AI_PROFILES.length + 1);
+// static overview camera until the first race starts
+camera.position.set(track.center[0].x - 40, 22, track.center[0].z + 10);
+camera.lookAt(track.center[0].x, 2, track.center[0].z);
+sun.position.set(track.center[0].x + 90, 150, track.center[0].z + 60);
+sun.target.position.set(track.center[0].x, 0, track.center[0].z);
+sun.target.updateMatrixWorld();
 
-// AI first, player at the back of the grid.
-AI_PROFILES.forEach((p, i) => {
-  const s = slots[i];
-  const v = new Vehicle({ world, RAPIER, scene }, {
-    name: p.name, color: p.color, accent: p.accent,
-    position: s.position, heading: s.heading,
-  });
-  entries.push({ vehicle: v, name: p.name, color: p.color, ai: new AIDriver(v, track, p), isPlayer: false });
-});
-{
-  const s = slots[AI_PROFILES.length];
-  player = new Vehicle({ world, RAPIER, scene }, {
-    name: 'You', color: 0xb6e832, accent: 0xf3a13a,
-    position: s.position, heading: s.heading, isPlayer: true,
-  });
-  entries.push({ vehicle: player, name: 'You', color: 0xb6e832, isPlayer: true });
-}
+const chase = new ChaseCamera(camera);
+const hud = new Hud();
+const minimap = new Minimap(document.getElementById('minimap'), track);
+const input = new Input();
 
-const vehicles = entries.map((e) => e.vehicle);
-race = new Race(track, entries, TOTAL_LAPS);
-chase = new ChaseCamera(camera);
-chase.snap(player);
-hud = new Hud();
-hud.setTotals(entries.length, TOTAL_LAPS);
-minimap = new Minimap(document.getElementById('minimap'), track);
-input = new Input();
-
-input.bind('c', () => { if (state.phase === 'racing') hud.setCamera(chase.cycle()); });
-input.bind('r', () => { if (state.phase === 'racing') respawn(race.player); });
-input.bind('escape', () => {
-  if (state.phase === 'racing') pause();
-  else if (state.phase === 'paused') resume();
-});
-document.getElementById('camChip').onclick = () => hud.setCamera(chase.cycle());
-document.getElementById('pauseChip').onclick = () => (state.phase === 'racing' ? pause() : resume());
+document.getElementById('loading').classList.add('hidden');
 
 const overlay = document.getElementById('overlay');
 const overlayBody = document.getElementById('overlayBody');
 const startBtn = document.getElementById('startBtn');
-document.getElementById('loading').classList.add('hidden');
-state.phase = 'ready';
-startBtn.onclick = () => startRace();
 
-// ---------------------------------------------------------------- helpers
+const menu = new Menu({
+  root: document.getElementById('menuOverlay'),
+  panel: document.getElementById('menuPanel'),
+  settings, netAvailable,
+  handlers: {
+    onSingleStart: () => startSinglePlayer(),
+    onSettingsSave: (patch) => { saveSettings(patch); applyQuality(settings.quality); menu.showMain(); },
+    onOpenLeaderboard: async () => {
+      menu.showLobbyConnecting('Leaderboard');
+      const { rows, error } = await fetchTopTimes();
+      menu.showLeaderboard(rows, error);
+    },
+    onOpenMultiplayer: () => menu.showMultiplayerChoice(),
+    onHost: (info) => hostLobby(info),
+    onJoin: (code, info) => joinLobby(code, info),
+    onLobbySettingsChange: (patch) => {
+      Object.assign(lobbySettings, patch);
+      currentLobby?.sendSettings(lobbySettings);
+      renderLobbyScreen();
+    },
+    onLobbyStart: () => beginAsHost(),
+    onLeaveLobby: async () => {
+      if (currentLobby) { await currentLobby.leave(); currentLobby = null; }
+      lobbyRoster = []; lobbySettings = null;
+      menu.showMain();
+    },
+  },
+});
+menu.showMain();
+
+// ---------------------------------------------------------------- multiplayer state (pre-race)
+let currentLobby = null;
+let lobbyRoster = [];
+let lobbyHostId = null;
+let lobbySettings = null;
+
+function renderLobbyScreen() {
+  if (!currentLobby) return;
+  const roster = lobbyRoster.map((r) => ({ ...r, isHost: r.clientId === lobbyHostId }));
+  menu.showLobby({
+    code: currentLobby.code, roster, isHost: currentLobby.isHost,
+    settings: lobbySettings ?? { laps: settings.laps, aiCount: settings.aiCount },
+  });
+}
+
+function connectLobby(code, playerName) {
+  if (!netAvailable) return Promise.reject(new Error('Multiplayer is not configured on this deployment.'));
+  return new Lobby({
+    code, name: playerName, color: settings.carColor,
+    onRoster: (roster, hostId) => {
+      lobbyRoster = roster; lobbyHostId = hostId;
+      if (!session) renderLobbyScreen();
+    },
+    onSettings: (payload) => {
+      lobbySettings = payload.settings;
+      if (!session) renderLobbyScreen();
+    },
+    onStart: (payload) => { if (!currentLobby.isHost) beginRace(payload, false); },
+    onState: (payload) => routeNetworkState(payload),
+    onFinish: (payload) => hud.message(`${payload.name} finished P${payload.position}`, { small: true, hold: 1.8 }),
+    onHostChange: () => { if (!session) renderLobbyScreen(); },
+  }).connect();
+}
+
+async function hostLobby({ playerName }) {
+  saveSettings({ playerName });
+  menu.showLobbyConnecting('Hosting…');
+  try {
+    currentLobby = await connectLobby(randomCode(), playerName);
+    lobbySettings = { laps: settings.laps, aiCount: settings.aiCount };
+    renderLobbyScreen();
+  } catch (err) {
+    menu.showMultiplayerChoice(`Could not host: ${err.message || err}`);
+  }
+}
+
+async function joinLobby(code, { playerName }) {
+  if (!code || code.length < 4) { menu.showMultiplayerChoice('Enter the 4-character room code.'); return; }
+  saveSettings({ playerName });
+  menu.showLobbyConnecting(`Joining ${code}…`);
+  try {
+    currentLobby = await connectLobby(code, playerName);
+    renderLobbyScreen();
+  } catch (err) {
+    menu.showMultiplayerChoice(`Could not join "${code}": ${err.message || err}`);
+  }
+}
+
+function beginAsHost() {
+  if (!currentLobby?.isHost) return;
+  const humans = lobbyRoster;
+  const aiProfiles = makeProfiles(lobbySettings.aiCount, skillValue(settings.aiSkill))
+    .map((p, i) => ({ ...p, id: `ai${i}`, slotIndex: humans.length + i }));
+  const grid = humans.map((r, i) => ({ clientId: r.clientId, slotIndex: i, name: r.name, color: r.color }));
+  const payload = { settings: { ...lobbySettings }, grid, aiProfiles, countdown: 3.6 };
+  currentLobby.sendStart(payload);
+  beginRace(payload, true);
+}
+
+// ---------------------------------------------------------------- session lifecycle
+let session = null; // { entries, race, player, netRole, lobby, remoteHumans, remoteAI }
+let netAcc = 0;
+let prevFinished = false;
+
+function finalizeEntries(entries, race) {
+  race.entries.forEach((re, i) => {
+    entries[i].entry = re;
+    entries[i].surface = (pt) => onRoad(pt, re.idx);
+  });
+}
+
+function disposeSession(s) {
+  if (!s) return;
+  for (const e of s.entries) e.vehicle.dispose();
+}
+
+function startSinglePlayer() {
+  menu.hide();
+  const aiProfiles = makeProfiles(settings.aiCount, skillValue(settings.aiSkill));
+  const slots = gridSlots(track, aiProfiles.length + 1);
+  const entries = [];
+
+  aiProfiles.forEach((p, i) => {
+    const s = slots[i];
+    const v = new Vehicle({ world, RAPIER, scene }, {
+      name: p.name, color: p.color, accent: p.accent, position: s.position, heading: s.heading,
+    });
+    entries.push({ vehicle: v, name: p.name, color: p.color, ai: new AIDriver(v, track, p), isPlayer: false });
+  });
+
+  const s = slots[aiProfiles.length];
+  const player = new Vehicle({ world, RAPIER, scene }, {
+    name: settings.playerName, color: settings.carColor, accent: 0xf3a13a,
+    position: s.position, heading: s.heading, isPlayer: true, tc: settings.tc, abs: settings.abs,
+  });
+  entries.push({ vehicle: player, name: settings.playerName, color: settings.carColor, isPlayer: true });
+
+  disposeSession(session);
+  const race = new Race(track, entries, settings.laps);
+  finalizeEntries(entries, race);
+  session = { entries, race, player, netRole: null, lobby: null, remoteHumans: null, remoteAI: null };
+  hud.setTotals(entries.length, race.totalLaps);
+  chase.snap(player);
+  beginCountdown(3.6);
+}
+
+function beginRace(payload, isHost) {
+  menu.hide();
+  const total = payload.grid.length + payload.aiProfiles.length;
+  const slots = gridSlots(track, total);
+  const entries = [];
+  const remoteHumans = new Map();
+  const remoteAI = new Map();
+  const localAI = [];
+  let player = null;
+
+  for (const g of payload.grid) {
+    const slot = slots[g.slotIndex];
+    if (g.clientId === currentLobby.clientId) {
+      const v = new Vehicle({ world, RAPIER, scene }, {
+        name: settings.playerName, color: settings.carColor, accent: 0xf3a13a,
+        position: slot.position, heading: slot.heading, isPlayer: true, tc: settings.tc, abs: settings.abs,
+      });
+      player = v;
+      entries.push({ vehicle: v, name: settings.playerName, color: settings.carColor, isPlayer: true });
+    } else {
+      const v = new RemoteVehicle({ world, RAPIER, scene }, {
+        name: g.name, color: g.color, accent: 0xf3a13a, position: slot.position, heading: slot.heading,
+      });
+      remoteHumans.set(g.clientId, v);
+      entries.push({ vehicle: v, name: g.name, color: g.color, isPlayer: false });
+    }
+  }
+
+  for (const p of payload.aiProfiles) {
+    const slot = slots[p.slotIndex];
+    if (isHost) {
+      const v = new Vehicle({ world, RAPIER, scene }, {
+        name: p.name, color: p.color, accent: p.accent, position: slot.position, heading: slot.heading,
+      });
+      const ai = new AIDriver(v, track, p);
+      localAI.push({ id: p.id, vehicle: v });
+      entries.push({ vehicle: v, name: p.name, color: p.color, ai, isPlayer: false });
+    } else {
+      const v = new RemoteVehicle({ world, RAPIER, scene }, {
+        name: p.name, color: p.color, accent: p.accent, position: slot.position, heading: slot.heading,
+      });
+      remoteAI.set(p.id, v);
+      entries.push({ vehicle: v, name: p.name, color: p.color, isPlayer: false });
+    }
+  }
+
+  if (!player) { console.error('Local player was not present in the start payload grid.'); return; }
+
+  disposeSession(session);
+  const race = new Race(track, entries, payload.settings.laps);
+  finalizeEntries(entries, race);
+  session = {
+    entries, race, player, netRole: isHost ? 'host' : 'guest', lobby: currentLobby,
+    remoteHumans, remoteAI, localAI,
+  };
+  hud.setTotals(entries.length, race.totalLaps);
+  chase.snap(player);
+  netAcc = 0;
+  beginCountdown(payload.countdown ?? 3.6);
+}
+
+function routeNetworkState(payload) {
+  if (!session || session.lobby !== currentLobby || !session.remoteHumans) return;
+  const remote = session.remoteHumans.get(payload.clientId);
+  if (remote) remote.pushSnapshot({ t: payload.t, ...payload.car });
+  if (payload.ai) {
+    for (const a of payload.ai) {
+      const rv = session.remoteAI.get(a.id);
+      if (rv) rv.pushSnapshot({ t: payload.t, ...a.car });
+    }
+  }
+}
+
+function sendNetworkState() {
+  const s = session;
+  if (!s?.lobby) return;
+  const pe = s.race.entries.find((e) => e.isPlayer);
+  const car = packCar(s.player, { lap: pe.lap, finished: pe.finished, finishTime: pe.finishTime, best: pe.best, wrongWay: pe.wrongWay });
+  const extra = {};
+  if (s.netRole === 'host') {
+    extra.ai = s.localAI.map((a) => {
+      const e = s.entries.find((en) => en.vehicle === a.vehicle);
+      return { id: a.id, car: packCar(a.vehicle, { lap: e.lap, finished: e.finished, finishTime: e.finishTime, best: e.best, wrongWay: e.wrongWay }) };
+    });
+  }
+  s.lobby.sendState(car, extra);
+}
+
+// ---------------------------------------------------------------- race helpers
 function onRoad(point, hint) {
   const i = nearestIndex(track, point, hint, 60);
   const c = track.center[i];
@@ -123,13 +337,14 @@ function respawn(entry) {
   entry.vehicle.resetTo(new THREE.Vector3(c.x, 1.1, c.z), Math.atan2(t.x, t.z));
 }
 
-/** Un-stick cars that have flipped or beached themselves on a barrier. */
+/** Un-stick local cars that have flipped or beached themselves on a barrier. */
 function recover(e, dt) {
+  if (e.vehicle.isRemote) return; // owner's machine handles its own recovery
   const v = e.vehicle;
   const flipped = v.tilt < 0.35;
   const beached = e.isPlayer
     ? (v.speedKmh < 5 && (v.offRoad || !v.grounded))
-    : v.speedKmh < 6;   // an AI that has stopped is always stuck
+    : v.speedKmh < 6;
   e.stuckFor = (flipped || beached) ? (e.stuckFor || 0) + dt : 0;
   const limit = e.isPlayer ? 3.5 : 2.2;
   if (e.stuckFor > limit) {
@@ -139,14 +354,17 @@ function recover(e, dt) {
   }
 }
 
-function startRace() {
+function beginCountdown(seconds) {
   overlay.classList.add('hidden');
   hud.show(true);
   hud.setCamera(chase.name);
   state.phase = 'countdown';
-  state.countdown = 3.6;
-  race.reset();
+  state.countdown = seconds;
+  session.race.reset();
   input.enabled = false;
+  prevFinished = false;
+  document.getElementById('overlayLede').textContent =
+    `${session.race.totalLaps} lap${session.race.totalLaps > 1 ? 's' : ''} · ${session.entries.length} cars · rear-wheel drive`;
 }
 
 function pause() {
@@ -164,32 +382,73 @@ function resume() {
   input.enabled = true;
 }
 
+async function submitBestLap(button) {
+  const p = session.race.player;
+  if (p.best === null) return;
+  button.disabled = true;
+  button.textContent = 'Submitting…';
+  const { error } = await submitLapTime({
+    playerName: settings.playerName, lapMs: p.best * 1000,
+    laps: session.race.totalLaps, aiCount: settings.aiCount, tc: settings.tc, abs: settings.abs,
+  });
+  button.textContent = error ? 'Failed — try again' : 'Submitted ✓';
+  button.disabled = !error;
+}
+
 function finish() {
   state.phase = 'finished';
   input.enabled = false;
+  const race = session.race;
+  const multiplayer = !!session.netRole;
+
   const rows = race.order.map((e) => {
-    const swatch = `#${(e.isPlayer ? 0xc8f527 : e.color).toString(16).padStart(6, '0')}`;
-    const t = e.finished ? formatTime(e.finishTime) : `lap ${Math.max(1, e.lap)}/${TOTAL_LAPS}`;
+    const swatch = `#${(e.isPlayer ? settings.carColor : e.color).toString(16).padStart(6, '0')}`;
+    const t = e.finished ? formatTime(e.finishTime) : `lap ${Math.max(1, e.lap)}/${race.totalLaps}`;
     return `<tr class="${e.isPlayer ? 'you' : ''}"><td>${e.position}</td>
       <td><span class="swatch" style="background:${swatch}"></span>${e.name}</td><td>${t}</td></tr>`;
   }).join('');
+
   const p = race.player;
+  const canSubmit = leaderboardEnabled() && p.best !== null;
   overlayBody.innerHTML = `
     <p class="lede">Finished P${p.position} · best lap ${formatTime(p.best)}</p>
-    <table class="results">${rows}</table>`;
-  startBtn.textContent = 'Race Again';
+    <table class="results">${rows}</table>
+    ${canSubmit ? '<button class="btn ghost" id="submitLapBtn" style="width:100%;margin:0 0 10px">Submit best lap</button>' : ''}
+    <button class="btn ghost" id="menuBtn" style="width:100%;margin:0">Main Menu</button>
+  `;
+  if (canSubmit) document.getElementById('submitLapBtn').onclick = (e) => submitBestLap(e.target);
+  document.getElementById('menuBtn').onclick = () => {
+    overlay.classList.add('hidden');
+    hud.show(false);
+    disposeSession(session);
+    session = null;
+    if (multiplayer && currentLobby) renderLobbyScreen();
+    else menu.showMain();
+  };
+
+  startBtn.textContent = multiplayer ? 'Back to Lobby' : 'Race Again';
   startBtn.onclick = () => {
-    slots.forEach((s, i) => entries[i].vehicle.resetTo(s.position, s.heading));
-    race.reset();
-    chase.snap(player);
-    startRace();
+    if (multiplayer) {
+      disposeSession(session);
+      session = null;
+      overlay.classList.add('hidden');
+      hud.show(false);
+      if (currentLobby) renderLobbyScreen(); else menu.showMain();
+    } else {
+      startSinglePlayer();
+    }
   };
   overlay.classList.remove('hidden');
   hud.message('');
+
+  if (session.lobby) {
+    session.lobby.sendFinish({ name: settings.playerName, position: p.position, finishTime: p.finishTime });
+  }
 }
 
 // ---------------------------------------------------------------- loop
 const FIXED = 1 / 120;
+const IDLE_CTRL = { throttle: 0, brake: 1, steer: 0, handbrake: true };
 let acc = 0;
 let last = performance.now();
 let lastCount = -1;
@@ -199,7 +458,10 @@ function step(dt) {
   const ctrl = ctrlOverride || input.sample(dt);
   const racing = state.phase === 'racing' || state.phase === 'countdown';
 
-  if (racing) {
+  if (racing && session) {
+    const { entries, race, player } = session;
+    const vehicles = entries.map((e) => e.vehicle);
+
     if (state.phase === 'countdown') {
       state.countdown -= dt;
       const n = Math.ceil(state.countdown - 0.6);
@@ -215,11 +477,15 @@ function step(dt) {
       }
     }
 
+    // interpolated cars advance once per render frame, ahead of the physics substeps
+    for (const e of entries) if (e.vehicle.isRemote) e.vehicle.update(dt);
+
     acc += dt;
     let steps = 0;
     while (acc >= FIXED && steps < 6) {
       const active = state.phase === 'racing';
       for (const e of entries) {
+        if (e.vehicle.isRemote) continue;
         const c = e.isPlayer
           ? (active ? ctrl : IDLE_CTRL)
           : (active ? e.ai.control(FIXED, e.entry.idx, race.time, vehicles) : IDLE_CTRL);
@@ -233,23 +499,29 @@ function step(dt) {
 
     race.update(dt);
     if (state.phase === 'racing') for (const e of entries) recover(e, dt);
-    if (race.over && state.phase === 'racing') finish();
+
+    if (session.lobby && (state.phase === 'racing' || state.phase === 'countdown')) {
+      netAcc += dt;
+      if (netAcc >= 1 / NET_HZ) { netAcc = 0; sendNetworkState(); }
+    }
+
+    if (race.over && state.phase === 'racing' && !prevFinished) {
+      prevFinished = true;
+      finish();
+    }
 
     hud.update(dt, race, player);
     minimap.draw(race.entries);
+
+    chase.update(dt, player);
+    const p = player.position;
+    sun.position.set(p.x + 90, 150, p.z + 60);
+    sun.target.position.set(p.x, 0, p.z);
+    sun.target.updateMatrixWorld();
   }
-
-  chase.update(dt, player);
-
-  const p = player.position;
-  sun.position.set(p.x + 90, 150, p.z + 60);
-  sun.target.position.set(p.x, 0, p.z);
-  sun.target.updateMatrixWorld();
 
   renderer.render(scene, camera);
 }
-
-const IDLE_CTRL = { throttle: 0, brake: 1, steer: 0, handbrake: true };
 
 function frame(now) {
   requestAnimationFrame(frame);
@@ -259,18 +531,24 @@ function frame(now) {
   step(dt);
 }
 
-// link race entries back to the drivable entries so the AI knows its track index
-race.entries.forEach((re, i) => {
-  entries[i].entry = re;
-  entries[i].surface = (pt) => onRoad(pt, re.idx);
+input.bind('c', () => { if (state.phase === 'racing') hud.setCamera(chase.cycle()); });
+input.bind('r', () => { if (state.phase === 'racing' && session) respawn(session.race.player); });
+input.bind('escape', () => {
+  if (state.phase === 'racing') pause();
+  else if (state.phase === 'paused') resume();
 });
+document.getElementById('camChip').onclick = () => hud.setCamera(chase.cycle());
+document.getElementById('pauseChip').onclick = () => (state.phase === 'racing' ? pause() : resume());
 
 if (DEBUG) {
   window.__game = {
-    world, track, race, entries, player, state, chase, step, input, hud,
+    world, track, state, chase, step, input, hud,
+    get race() { return session?.race; },
+    get entries() { return session?.entries; },
+    get player() { return session?.player; },
     setControls: (c) => { ctrlOverride = c; if (c) input.enabled = false; },
     sim: (seconds, dt = 1 / 60) => { for (let i = 0; i < Math.round(seconds / dt); i++) step(dt); },
-    start: () => startRace(),
+    start: () => startSinglePlayer(),
   };
 }
 

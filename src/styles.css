@@ -99,6 +99,30 @@ kbd.wide{padding:3px 12px}
 .results tr.you td{color:var(--accent)}
 .swatch{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:9px;vertical-align:middle}
 
+/* menu / settings / lobby / leaderboard */
+.panel.wide{width:min(440px,90vw);max-height:86vh;overflow-y:auto}
+.menu-list{display:flex;flex-direction:column;gap:10px;margin:6px 0 4px}
+.menu-list .btn{margin:0;width:100%}
+.menu-list .btn:disabled{opacity:.35;cursor:not-allowed;filter:none}
+.form{text-align:left;display:flex;flex-direction:column;gap:16px;margin:18px 0}
+.form label{display:flex;flex-direction:column;gap:6px;font-size:11px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--dim)}
+.form label.row{flex-direction:row;align-items:center;gap:9px;text-transform:none;letter-spacing:.02em;font-size:13px;color:var(--ink)}
+.form label .val{color:var(--accent);font-style:italic;font-size:14px;text-transform:none}
+.form input[type="text"],.form select{background:rgba(255,255,255,.06);border:1px solid var(--stroke);
+  border-radius:8px;padding:10px 12px;color:var(--ink);font:inherit;font-size:14px}
+.form input[type="range"]{accent-color:var(--accent)}
+.form input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
+.swatches{display:flex;gap:8px;flex-wrap:wrap}
+.swatch-btn{width:26px;height:26px;border-radius:7px;border:2px solid transparent;cursor:pointer;padding:0}
+.swatch-btn.sel{border-color:var(--ink)}
+.roster{list-style:none;margin:0 0 20px;padding:0;text-align:left;display:flex;flex-direction:column;gap:8px}
+.roster li{display:flex;align-items:center;font-size:14px;padding:8px 12px;border:1px solid var(--stroke);border-radius:8px}
+.roster li.host{border-color:var(--accent)}
+.roster li em{margin-left:auto;font-style:normal;color:var(--accent);font-size:10px;letter-spacing:.1em;text-transform:uppercase}
+.code{color:var(--accent);letter-spacing:.25em;font-style:normal}
+.error{color:#e0472c;font-size:12px;letter-spacing:.04em;margin:-8px 0 16px}
+
 @media (max-width:900px){
   .speed{font-size:64px}.stat .big{font-size:40px}.time{font-size:28px}
   .hud-bottomleft{display:none}.hud-keys{display:none}

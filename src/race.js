@@ -44,6 +44,19 @@ export class Race {
       const prev = e.idx;
       e.idx = nearestIndex(this.track, e.vehicle.position, prev, 70);
 
+      // Remote cars are owner-authoritative: the network snapshot from the
+      // machine actually simulating that car carries lap/finish state, so we
+      // only track its track index here (for progress ordering / minimap).
+      if (e.vehicle.isRemote) {
+        e.lap = e.vehicle.netLap;
+        e.finished = e.vehicle.netFinished;
+        e.finishTime = e.vehicle.netFinishTime;
+        e.best = e.vehicle.netBest;
+        e.wrongWay = e.vehicle.netWrongWay;
+        e.progress = e.lap * n + e.idx;
+        continue;
+      }
+
       const fwd0 = e.vehicle.forward;
       const t0 = this.track.tangent[e.idx];
       e.wrongWay = e.vehicle.speedKmh > 25 && (fwd0.x * t0.x + fwd0.z * t0.z) < -0.35;
