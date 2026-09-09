@@ -40,7 +40,7 @@
         <div class="gearbox"><div class="gear accent" id="gear">1</div><div class="label">Gear</div></div>
         <div class="speedbox"><div class="speed" id="speed">0</div><div class="unit">KM/H</div></div>
       </div>
-      <div class="assistrow"><span>TC ON</span><span>ABS ON</span></div>
+      <div class="assistrow"><span id="tcState">TC ON</span><span id="absState">ABS ON</span></div>
     </div>
 
     <div class="hud-bottomleft">
@@ -62,7 +62,7 @@
     <div class="panel">
       <div class="eyebrow">Circuit</div>
       <h1>Azzurra Coast</h1>
-      <p class="lede">3 laps · 6 cars · rear-wheel drive</p>
+      <p class="lede" id="overlayLede">3 laps · 6 cars · rear-wheel drive</p>
       <div id="overlayBody"></div>
       <button id="startBtn" class="btn">Start Race</button>
       <div class="hint">W/S throttle &amp; brake · A/D steer · SPACE handbrake · R reset · C camera · ESC pause</div>
@@ -70,6 +70,10 @@
   </div>
 
   <div id="loading" class="overlay"><div class="panel"><div class="eyebrow">Loading</div><h1>Warming the tyres…</h1></div></div>
+
+  <div id="menuOverlay" class="overlay hidden">
+    <div class="panel wide" id="menuPanel"></div>
+  </div>
 </div>
 <script type="module" src="/src/main.js"></script>
 </body>

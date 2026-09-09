@@ -9,6 +9,9 @@ const FRONT_Z = 1.37;
 const REAR_Z = -1.42;
 const VISUAL_DROP = 0.74;          // body origin -> ground in local space
 
+// Shared with remoteVehicle.js so networked cars line up visually with local ones.
+export const GEOMETRY = { RADIUS, REST, ATTACH_Y, HALF_TRACK, FRONT_Z, REAR_Z, VISUAL_DROP };
+
 const SPRING = 62000;              // N/m
 const DAMPER = 4200;               // N/(m/s)
 const ANTIROLL = 26000;            // N/m of left/right travel difference
@@ -38,6 +41,8 @@ export class Vehicle {
     this.name = opts.name || 'Driver';
     this.color = opts.color ?? 0xc8f527;
     this.isPlayer = !!opts.isPlayer;
+    this.tc = opts.tc !== false;
+    this.abs = opts.abs !== false;
 
     const yaw = opts.heading || 0;
     const desc = RAPIER.RigidBodyDesc.dynamic()
@@ -99,6 +104,11 @@ export class Vehicle {
     return new THREE.Vector3(0, 0, 1).applyQuaternion(this.quaternion);
   }
 
+  setAssists({ tc, abs } = {}) {
+    if (tc !== undefined) this.tc = tc;
+    if (abs !== undefined) this.abs = abs;
+  }
+
   resetTo(pos, yaw) {
     this.body.setTranslation({ x: pos.x, y: pos.y, z: pos.z }, true);
     this.body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
@@ -107,6 +117,11 @@ export class Vehicle {
     this.gear = 1;
     this.rpm = IDLE;
     this.steer = 0;
+  }
+
+  dispose() {
+    this.world.removeRigidBody(this.body);
+    this.mesh.parent?.remove(this.mesh);
   }
 
   /** ctrl: { throttle 0..1, brake 0..1, steer -1..1, handbrake bool } */
@@ -266,8 +281,20 @@ export class Vehicle {
 
       const combined = Math.hypot(Flat, Flong);
       if (combined > maxF) {
-        const sc = maxF / combined;
-        Flat *= sc; Flong *= sc;
+        const braking = brakeHere > 0 && Math.abs(Flong) > Math.abs(Flat);
+        const spinning = w.drive && !hb && Flong > 0 && Flong > Math.abs(Flat) * 0.3;
+        if (this.abs && braking) {
+          // ABS: sacrifice longitudinal (brake) force to keep steering grip.
+          const availLong = Math.sqrt(Math.max(0, maxF * maxF - Flat * Flat));
+          Flong = Math.sign(Flong) * Math.min(Math.abs(Flong), availLong);
+        } else if (!this.tc && spinning) {
+          // TC off: keep the requested drive force, let the tyre step out sideways.
+          const availLat = Math.sqrt(Math.max(0, maxF * maxF - Flong * Flong));
+          Flat = Math.sign(Flat) * Math.min(Math.abs(Flat), availLat);
+        } else {
+          const sc = maxF / combined;
+          Flat *= sc; Flong *= sc;
+        }
       }
 
       const imp = wFwd.clone().multiplyScalar(Flong * dt).add(wRight.clone().multiplyScalar(Flat * dt));

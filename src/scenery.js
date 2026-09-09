@@ -9,8 +9,10 @@ function rng(seed) {
   };
 }
 
-export function buildScenery(scene, track) {
+export function buildScenery(scene, track, quality = {}) {
   const rand = rng(20260909);
+  const treeCount = quality.trees ?? 900;
+  const rockCount = quality.rocks ?? 260;
   const { center } = track;
 
   const nearTrack = (x, z, minDist) => {
@@ -26,7 +28,7 @@ export function buildScenery(scene, track) {
   const trunkGeo = new THREE.CylinderGeometry(0.28, 0.36, 1.6, 5);
   const coneGeo = new THREE.ConeGeometry(1, 1, 7);
   const greens = [0x2f6b3d, 0x3a7a45, 0x27593a, 0x468551];
-  const TREES = 900;
+  const TREES = treeCount;
   const trunks = new THREE.InstancedMesh(
     trunkGeo, new THREE.MeshLambertMaterial({ color: 0x51402f }), TREES);
   const canopy = new THREE.InstancedMesh(
@@ -65,7 +67,7 @@ export function buildScenery(scene, track) {
   scene.add(trunks, canopy);
 
   // ---------- rocks ----------
-  const ROCKS = 260;
+  const ROCKS = rockCount;
   const rocks = new THREE.InstancedMesh(
     new THREE.IcosahedronGeometry(1, 0),
     new THREE.MeshLambertMaterial({ color: 0xbfbdae, flatShading: true }), ROCKS);

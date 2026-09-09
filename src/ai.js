@@ -83,10 +83,35 @@ export class AIDriver {
   }
 }
 
-export const AI_PROFILES = [
-  { name: 'Vero',    color: 0xd8422c, accent: 0xffd9a0, skill: 0.94, offset: -1.0 },
-  { name: 'Ferrand', color: 0x8b3f9e, accent: 0xe9c6ff, skill: 0.90, offset: 1.2 },
-  { name: 'Kovac',   color: 0x2f7fd8, accent: 0xbfe1ff, skill: 0.87, offset: -1.9 },
-  { name: 'Sandoval',color: 0x1d8f6a, accent: 0xb9f0d8, skill: 0.84, offset: 1.9 },
-  { name: 'Mireau',  color: 0xe0872a, accent: 0xfff0cf, skill: 0.80, offset: 0.1 },
+// Base roster (name, paint, accent) — skill and offset are generated per race
+// so the same drivers can be used at any difficulty and any grid size.
+const ROSTER = [
+  { name: 'Vero',     color: 0xd8422c, accent: 0xffd9a0 },
+  { name: 'Ferrand',  color: 0x8b3f9e, accent: 0xe9c6ff },
+  { name: 'Kovac',    color: 0x2f7fd8, accent: 0xbfe1ff },
+  { name: 'Sandoval', color: 0x1d8f6a, accent: 0xb9f0d8 },
+  { name: 'Mireau',   color: 0xe0872a, accent: 0xfff0cf },
+  { name: 'Okafor',   color: 0xc9337a, accent: 0xffd2e6 },
+  { name: 'Lindqvist',color: 0x3fa7a0, accent: 0xcdf3ef },
+  { name: 'Basile',   color: 0x9a8b2f, accent: 0xf3ecc0 },
+  { name: 'Renner',   color: 0x5a6bd8, accent: 0xd8dfff },
 ];
+
+const OFFSETS = [-1.0, 1.2, -1.9, 1.9, 0.1, -2.6, 2.6, -0.6, 0.6];
+
+/**
+ * Builds `count` AI profiles at the given base skill (0..~1). Each driver
+ * gets a small deterministic-ish spread around that skill so a grid never
+ * feels robotic, and a side-offset from OFFSETS so they don't all queue up
+ * on the racing line.
+ */
+export function makeProfiles(count, baseSkill) {
+  const n = Math.max(0, Math.min(ROSTER.length, count));
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const spread = ((i * 37) % 11) / 11 - 0.5; // -0.5..0.5, deterministic per slot
+    const skill = Math.max(0.05, Math.min(1.05, baseSkill + spread * 0.14));
+    out.push({ ...ROSTER[i], skill, offset: OFFSETS[i % OFFSETS.length] });
+  }
+  return out;
+}
