@@ -1,14 +1,23 @@
 const KEY = 'azzurra.settings.v1';
 
+/** Touch-capable devices (phones and tablets) get the cheap renderer by default. */
+function isMobileLike() {
+  if (typeof window === 'undefined') return false;
+  const touch = (navigator.maxTouchPoints || 0) > 0 || 'ontouchstart' in window;
+  return touch && Math.min(window.innerWidth, window.innerHeight) < 900;
+}
+
 const DEFAULTS = {
-  laps: 3,
+  // Poki's audience is casual and time-to-fun is what its playtests measure, so
+  // the portal build defaults to a single lap (~80s) instead of a 4-minute race.
+  laps: __POKI__ ? 1 : 3,
   aiCount: 5,
   aiSkill: 'normal',        // easy | normal | hard | pro
   playerName: '',
   carColor: 0xb6e832,
   tc: true,
   abs: true,
-  quality: 'high',          // low | medium | high
+  quality: isMobileLike() ? 'low' : 'high',   // low | medium | high
 };
 
 const SKILL_SCALE = { easy: 0.55, normal: 0.78, hard: 0.92, pro: 1.02 };

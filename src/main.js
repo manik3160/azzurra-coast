@@ -12,10 +12,28 @@ import { Hud } from './hud.js';
 import { Minimap } from './minimap.js';
 import { Menu } from './ui/menu.js';
 import { settings, saveSettings, skillValue, QUALITY_PRESETS } from './settings.js';
-import { isConfigured as netAvailable } from './net/supabase.js';
-import { Lobby, randomCode } from './net/lobby.js';
-import { packCar } from './net/snapshot.js';
-import { leaderboardEnabled, submitLapTime, fetchTopTimes } from './leaderboard.js';
+import * as poki from './poki.js';
+import { TouchControls, isTouchDevice } from './touch.js';
+
+// Multiplayer + leaderboard are loaded dynamically so the Poki build can drop
+// them entirely: Poki blocks external requests and forbids multiplayer
+// backends, and src/net/supabase.js creates its client at module scope, so a
+// static import would be bundled even when unused. On the web build this also
+// keeps Supabase off the initial load.
+let net = null;
+let netAvailable = false;
+
+async function loadNet() {
+  if (__POKI__ || net) return net;
+  const [supa, lobby, snap, lb] = await Promise.all([
+    import('./net/supabase.js'),
+    import('./net/lobby.js'),
+    import('./net/snapshot.js'),
+    import('./leaderboard.js'),
+  ]);
+  net = { ...supa, ...lobby, ...snap, ...lb };
+  return net;
+}
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
 const NET_HZ = 10;
@@ -62,9 +80,14 @@ resize();
 // ---------------------------------------------------------------- boot
 const state = { phase: 'menu', countdown: 0 };
 
+// 4 suspension raycasts per car per substep is the dominant CPU cost, so
+// mobile runs physics at half rate to protect Poki's 30fps floor.
+const PHYSICS_HZ = isTouchDevice() ? 60 : 120;
+const FIXED = 1 / PHYSICS_HZ;
+
 await RAPIER.init();
 const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
-world.timestep = 1 / 120;
+world.timestep = FIXED;
 
 const track = buildTrack(scene, world, RAPIER);
 buildScenery(scene, track, bootQuality);
@@ -80,8 +103,24 @@ const chase = new ChaseCamera(camera);
 const hud = new Hud();
 const minimap = new Minimap(document.getElementById('minimap'), track);
 const input = new Input();
+const touch = new TouchControls(document.getElementById('touch'));
+const useTouch = isTouchDevice();
+
+// Poki SDK first, then the multiplayer chunk (web build only). Neither is
+// allowed to block the game from starting if it fails.
+await poki.initPoki();
+if (!__POKI__) {
+  try {
+    await loadNet();
+    netAvailable = !!net?.isConfigured;
+  } catch {
+    netAvailable = false;   // multiplayer simply stays disabled
+  }
+}
 
 document.getElementById('loading').classList.add('hidden');
+// The game is playable from here: assets built, first frame about to render.
+poki.loadingFinished();
 
 const overlay = document.getElementById('overlay');
 const overlayBody = document.getElementById('overlayBody');
@@ -96,7 +135,7 @@ const menu = new Menu({
     onSettingsSave: (patch) => { saveSettings(patch); applyQuality(settings.quality); menu.showMain(); },
     onOpenLeaderboard: async () => {
       menu.showLobbyConnecting('Leaderboard');
-      const { rows, error } = await fetchTopTimes();
+      const { rows, error } = await net.fetchTopTimes();
       menu.showLeaderboard(rows, error);
     },
     onOpenMultiplayer: () => menu.showMultiplayerChoice(),
@@ -134,7 +173,7 @@ function renderLobbyScreen() {
 
 function connectLobby(code, playerName) {
   if (!netAvailable) return Promise.reject(new Error('Multiplayer is not configured on this deployment.'));
-  return new Lobby({
+  return new net.Lobby({
     code, name: playerName, color: settings.carColor,
     onRoster: (roster, hostId) => {
       lobbyRoster = roster; lobbyHostId = hostId;
@@ -155,7 +194,7 @@ async function hostLobby({ playerName }) {
   saveSettings({ playerName });
   menu.showLobbyConnecting('Hosting…');
   try {
-    currentLobby = await connectLobby(randomCode(), playerName);
+    currentLobby = await connectLobby(net.randomCode(), playerName);
     lobbySettings = { laps: settings.laps, aiCount: settings.aiCount };
     renderLobbyScreen();
   } catch (err) {
@@ -230,7 +269,7 @@ function startSinglePlayer() {
   session = { entries, race, player, netRole: null, lobby: null, remoteHumans: null, remoteAI: null };
   hud.setTotals(entries.length, race.totalLaps);
   chase.snap(player);
-  beginCountdown(3.6);
+  beginCountdownWithAd(3.6);
 }
 
 function beginRace(payload, isHost) {
@@ -291,7 +330,7 @@ function beginRace(payload, isHost) {
   hud.setTotals(entries.length, race.totalLaps);
   chase.snap(player);
   netAcc = 0;
-  beginCountdown(payload.countdown ?? 3.6);
+  beginCountdownWithAd(payload.countdown ?? 3.6);
 }
 
 function routeNetworkState(payload) {
@@ -310,12 +349,12 @@ function sendNetworkState() {
   const s = session;
   if (!s?.lobby) return;
   const pe = s.race.entries.find((e) => e.isPlayer);
-  const car = packCar(s.player, { lap: pe.lap, finished: pe.finished, finishTime: pe.finishTime, best: pe.best, wrongWay: pe.wrongWay });
+  const car = net.packCar(s.player, { lap: pe.lap, finished: pe.finished, finishTime: pe.finishTime, best: pe.best, wrongWay: pe.wrongWay });
   const extra = {};
   if (s.netRole === 'host') {
     extra.ai = s.localAI.map((a) => {
       const e = s.entries.find((en) => en.vehicle === a.vehicle);
-      return { id: a.id, car: packCar(a.vehicle, { lap: e.lap, finished: e.finished, finishTime: e.finishTime, best: e.best, wrongWay: e.wrongWay }) };
+      return { id: a.id, car: net.packCar(a.vehicle, { lap: e.lap, finished: e.finished, finishTime: e.finishTime, best: e.best, wrongWay: e.wrongWay }) };
     });
   }
   s.lobby.sendState(car, extra);
@@ -354,14 +393,25 @@ function recover(e, dt) {
   }
 }
 
+/**
+ * Shows an ad at the natural break before a race, then starts the countdown.
+ * Resolves immediately when no ad is available, so this is safe everywhere.
+ */
+async function beginCountdownWithAd(seconds) {
+  await poki.commercialBreak();
+  beginCountdown(seconds);
+}
+
 function beginCountdown(seconds) {
   overlay.classList.add('hidden');
   hud.show(true);
+  touch.show(useTouch);
   hud.setCamera(chase.name);
   state.phase = 'countdown';
   state.countdown = seconds;
   session.race.reset();
   input.enabled = false;
+  touch.enabled = false;
   prevFinished = false;
   document.getElementById('overlayLede').textContent =
     `${session.race.totalLaps} lap${session.race.totalLaps > 1 ? 's' : ''} · ${session.entries.length} cars · rear-wheel drive`;
@@ -370,16 +420,24 @@ function beginCountdown(seconds) {
 function pause() {
   state.phase = 'paused';
   input.enabled = false;
+  touch.enabled = false;
+  touch.show(false);
+  poki.gameplayStop();
   overlayBody.innerHTML = '<p class="lede">Paused</p>';
   startBtn.textContent = 'Resume';
   startBtn.onclick = resume;
   overlay.classList.remove('hidden');
 }
 
-function resume() {
+/** Coming out of a pause is a natural break, so it gets an ad opportunity. */
+async function resume() {
+  await poki.commercialBreak();
   overlay.classList.add('hidden');
   state.phase = 'racing';
   input.enabled = true;
+  touch.enabled = true;
+  touch.show(useTouch);
+  poki.gameplayStart();
 }
 
 async function submitBestLap(button) {
@@ -387,7 +445,7 @@ async function submitBestLap(button) {
   if (p.best === null) return;
   button.disabled = true;
   button.textContent = 'Submitting…';
-  const { error } = await submitLapTime({
+  const { error } = await net.submitLapTime({
     playerName: settings.playerName, lapMs: p.best * 1000,
     laps: session.race.totalLaps, aiCount: settings.aiCount, tc: settings.tc, abs: settings.abs,
   });
@@ -398,6 +456,9 @@ async function submitBestLap(button) {
 function finish() {
   state.phase = 'finished';
   input.enabled = false;
+  touch.enabled = false;
+  touch.show(false);
+  poki.gameplayStop();
   const race = session.race;
   const multiplayer = !!session.netRole;
 
@@ -409,7 +470,7 @@ function finish() {
   }).join('');
 
   const p = race.player;
-  const canSubmit = leaderboardEnabled() && p.best !== null;
+  const canSubmit = !__POKI__ && net?.leaderboardEnabled() && p.best !== null;
   overlayBody.innerHTML = `
     <p class="lede">Finished P${p.position} · best lap ${formatTime(p.best)}</p>
     <table class="results">${rows}</table>
@@ -447,7 +508,6 @@ function finish() {
 }
 
 // ---------------------------------------------------------------- loop
-const FIXED = 1 / 120;
 const IDLE_CTRL = { throttle: 0, brake: 1, steer: 0, handbrake: true };
 let acc = 0;
 let last = performance.now();
@@ -455,7 +515,14 @@ let lastCount = -1;
 let ctrlOverride = null;
 
 function step(dt) {
-  const ctrl = ctrlOverride || input.sample(dt);
+  const kb = input.sample(dt);
+  const tc = touch.sample(dt);
+  // whichever input the player is actually using wins; touch is additive so a
+  // device with both keyboard and touchscreen works either way
+  const merged = touch.visible && (tc.throttle || tc.brake || tc.steer || tc.handbrake)
+    ? tc
+    : (kb.throttle || kb.brake || kb.steer || kb.handbrake ? kb : tc);
+  const ctrl = ctrlOverride || (touch.visible ? merged : kb);
   const racing = state.phase === 'racing' || state.phase === 'countdown';
 
   if (racing && session) {
@@ -473,7 +540,9 @@ function step(dt) {
       if (state.countdown <= 0) {
         state.phase = 'racing';
         input.enabled = true;
+        touch.enabled = true;
         race.started = true;
+        poki.gameplayStart();
       }
     }
 
@@ -537,6 +606,16 @@ input.bind('escape', () => {
   if (state.phase === 'racing') pause();
   else if (state.phase === 'paused') resume();
 });
+// Mobile is landscape-only (see #rotate in styles.css); if the player turns the
+// device mid-race, pause rather than letting the race run behind the prompt.
+if (useTouch && window.matchMedia) {
+  const portrait = window.matchMedia('(orientation: portrait)');
+  const onOrientation = () => {
+    if (portrait.matches && state.phase === 'racing') pause();
+  };
+  portrait.addEventListener?.('change', onOrientation);
+}
+
 document.getElementById('camChip').onclick = () => hud.setCamera(chase.cycle());
 document.getElementById('pauseChip').onclick = () => (state.phase === 'racing' ? pause() : resume());
 

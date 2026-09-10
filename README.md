@@ -15,6 +15,24 @@ npm run dev     # http://localhost:5180
 configuration; multiplayer and the leaderboard need Supabase (see below) and degrade gracefully —
 those two menu buttons are simply disabled — if it isn't configured.
 
+## Two build targets
+
+| | `npm run build` (web) | `npm run build:poki` |
+| --- | --- | --- |
+| Output | `dist/` | `dist-poki/` |
+| Multiplayer + leaderboard | ✅ Supabase | ❌ stripped from the bundle |
+| Poki SDK / ads | ❌ | ✅ injected |
+| Default laps | 3 | 1 |
+
+Poki blocks all external requests and forbids multiplayer backends and storing user data outside
+their own AUDS system, so the portal build ships single-player only. `--mode poki` sets a `__POKI__`
+compile-time constant; the Supabase modules are behind dynamic imports guarded by `!__POKI__` so
+they're absent from that bundle entirely (verify with `grep -c supabase dist-poki/assets/*.js` → 0).
+
+`npm run dev:poki` runs the Poki variant locally on port 5181. To validate compliance and the ad
+event sequence, upload `dist-poki/` to Poki's Inspector at
+[inspector.poki.dev](https://inspector.poki.dev).
+
 ## Controls
 
 | Key | Action |
