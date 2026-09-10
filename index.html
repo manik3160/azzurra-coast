@@ -58,6 +58,17 @@
     <div id="centerMsg" class="center-msg"></div>
   </div>
 
+  <div id="touch" class="touch hidden">
+    <div class="touch-left">
+      <button class="tpad" data-touch="left" aria-label="Steer left">◄</button>
+      <button class="tpad" data-touch="right" aria-label="Steer right">►</button>
+    </div>
+    <div class="touch-right">
+      <button class="tpad small" data-touch="handbrake" aria-label="Handbrake">DRIFT</button>
+      <button class="tpad" data-touch="brake" aria-label="Brake">BRAKE</button>
+    </div>
+  </div>
+
   <div id="overlay" class="overlay">
     <div class="panel">
       <div class="eyebrow">Circuit</div>
@@ -73,6 +84,14 @@
 
   <div id="menuOverlay" class="overlay hidden">
     <div class="panel wide" id="menuPanel"></div>
+  </div>
+
+  <div id="rotate">
+    <div class="rotate-inner">
+      <div class="rotate-icon">▭</div>
+      <h2>Rotate your device</h2>
+      <p>Azzurra Coast plays in landscape.</p>
+    </div>
   </div>
 </div>
 <script type="module" src="/src/main.js"></script>

@@ -123,7 +123,64 @@ kbd.wide{padding:3px 12px}
 .code{color:var(--accent);letter-spacing:.25em;font-style:normal}
 .error{color:#e0472c;font-size:12px;letter-spacing:.04em;margin:-8px 0 16px}
 
+/* ---------------- touch controls ---------------- */
+.touch{position:absolute;inset:0;z-index:4;pointer-events:none;
+  display:flex;justify-content:space-between;align-items:flex-end;
+  padding:0 max(18px,env(safe-area-inset-left)) max(18px,env(safe-area-inset-bottom))
+          max(18px,env(safe-area-inset-right))}
+.touch.hidden{display:none}
+.touch-left,.touch-right{display:flex;gap:14px;align-items:flex-end}
+.tpad{pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;
+  user-select:none;width:88px;height:88px;border-radius:22px;
+  border:1px solid rgba(255,255,255,.22);background:rgba(18,24,27,.42);
+  backdrop-filter:blur(6px);color:var(--ink);font:inherit;font-size:15px;font-weight:600;
+  letter-spacing:.1em;display:flex;align-items:center;justify-content:center;
+  transition:background .08s ease,transform .08s ease}
+.tpad.small{width:74px;height:74px;font-size:11px}
+.tpad.held{background:rgba(200,245,39,.32);border-color:var(--accent);transform:scale(.95)}
+
+/* ---------------- rotate prompt ---------------- */
+/* A 3D racing HUD plus touch pads doesn't fit a portrait phone, so mobile is
+   landscape-only (which Poki allows) with a prompt rather than a broken layout. */
+#rotate{display:none;position:fixed;inset:0;z-index:20;align-items:center;justify-content:center;
+  background:#0d1113;text-align:center;padding:24px}
+#rotate h2{font-size:22px;font-weight:300;letter-spacing:-.01em;margin:18px 0 6px}
+#rotate p{color:var(--dim);font-size:13px;margin:0}
+.rotate-icon{font-size:54px;color:var(--accent);line-height:1;
+  animation:rotatehint 1.8s ease-in-out infinite}
+@keyframes rotatehint{0%,40%{transform:rotate(0deg)}60%,100%{transform:rotate(90deg)}}
+@media (orientation:portrait) and (pointer:coarse){
+  #rotate{display:flex}
+}
+
+/* ---------------- responsive ---------------- */
 @media (max-width:900px){
-  .speed{font-size:64px}.stat .big{font-size:40px}.time{font-size:28px}
-  .hud-bottomleft{display:none}.hud-keys{display:none}
+  .speed{font-size:56px}.stat .big{font-size:34px}.time{font-size:24px}
+  .hud-topleft{top:14px;left:16px;gap:16px}
+  .hud-topleft .divider{height:48px}
+  .hud-topright{top:16px;right:16px}
+  .hud-bottomright{right:16px;bottom:120px;width:auto}
+  .hud-keys{display:none}
+  /* keep the minimap on mobile — it is how you learn the circuit — just smaller */
+  .hud-bottomleft{left:16px;bottom:120px;width:120px}
+  #minimap{width:112px;height:112px}
+  .trackname{font-size:9px;letter-spacing:.16em}
+  .panel{padding:26px 22px}
+  .panel h1{font-size:30px}
+  .panel.wide{width:min(400px,92vw)}
+  .btn{padding:12px 22px;font-size:12px}
+  .btn.ghost{margin-left:0}
+}
+
+/* short/landscape phones: the race HUD has to share space with the touch pads */
+@media (max-height:520px){
+  .speed{font-size:42px}.stat .big{font-size:26px}.time{font-size:20px}
+  .hud-bottomright{bottom:104px}
+  .hud-bottomleft{display:none}
+  .tpad{width:74px;height:74px;border-radius:18px}
+  .tpad.small{width:62px;height:62px}
+  .panel{padding:18px 20px;max-height:92vh;overflow-y:auto}
+  .panel h1{font-size:24px;margin:6px 0 4px}
+  .lede{margin-bottom:12px}
+  .form{gap:10px;margin:12px 0}
 }
