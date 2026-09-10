@@ -26,14 +26,15 @@ export class Menu {
     this.panel.innerHTML = `
       <div class="eyebrow">Circuit</div>
       <h1>Azzurra Coast</h1>
-      <p class="lede">${this.settings.laps} laps · ${this.settings.aiCount} AI · rear-wheel drive</p>
+      <p class="lede">${this.settings.laps} lap${this.settings.laps > 1 ? 's' : ''} · ${this.settings.aiCount} AI · rear-wheel drive</p>
       <div class="menu-list">
-        <button class="btn" data-a="single">Single Player</button>
-        <button class="btn ghost" data-a="mp" ${this.netAvailable ? '' : 'disabled'}>Multiplayer</button>
-        <button class="btn ghost" data-a="board" ${this.netAvailable ? '' : 'disabled'}>Leaderboard</button>
+        <button class="btn" data-a="single">${__POKI__ ? 'Race' : 'Single Player'}</button>
+        ${__POKI__ ? '' : `
+          <button class="btn ghost" data-a="mp" ${this.netAvailable ? '' : 'disabled'}>Multiplayer</button>
+          <button class="btn ghost" data-a="board" ${this.netAvailable ? '' : 'disabled'}>Leaderboard</button>`}
         <button class="btn ghost" data-a="settings">Settings</button>
       </div>
-      ${this.netAvailable ? '' : '<div class="hint">Multiplayer &amp; leaderboard need Supabase env vars — see README.</div>'}
+      ${__POKI__ || this.netAvailable ? '' : '<div class="hint">Multiplayer &amp; leaderboard need Supabase env vars — see README.</div>'}
     `;
     this._bind({
       single: () => this.h.onSingleStart(),
