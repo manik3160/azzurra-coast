@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite --port 5180",
     "build": "vite build",
-    "preview": "vite preview --port 5180"
+    "preview": "vite preview --port 5180",
+    "dev:poki": "vite --mode poki --port 5181",
+    "build:poki": "vite build --mode poki --outDir dist-poki",
+    "preview:poki": "vite preview --outDir dist-poki --port 5181"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.14.0",
