@@ -19,6 +19,12 @@ function pokiSdkPlugin(enabled) {
 export default defineConfig(({ mode }) => {
   const poki = mode === 'poki';
   return {
+    // Poki hosts every build under its own subfolder (e.g. /builds/<id>/), not
+    // at the domain root. Vite's default base ('/') emits absolute root paths
+    // like /assets/index.js, which 404 under a subfolder — confirmed live
+    // against Poki's own Inspector upload. Relative paths fix it, and work
+    // identically on Vercel since this app has no client-side routing.
+    base: poki ? './' : '/',
     server: { host: '127.0.0.1' },
     build: { target: 'esnext' },
     optimizeDeps: { esbuildOptions: { target: 'esnext' } },
