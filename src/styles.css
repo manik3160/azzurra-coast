@@ -134,7 +134,8 @@ kbd.wide{padding:3px 12px}
 .touch.hidden{display:none}
 .touch-left,.touch-right{display:flex;gap:14px;align-items:flex-end}
 .tpad{pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;
-  user-select:none;width:88px;height:88px;border-radius:22px;
+  -webkit-touch-callout:none;-webkit-user-select:none;user-select:none;
+  width:88px;height:88px;border-radius:22px;
   border:1px solid rgba(255,255,255,.22);background:rgba(18,24,27,.42);
   backdrop-filter:blur(6px);color:var(--ink);font:inherit;font-size:15px;font-weight:600;
   letter-spacing:.1em;display:flex;align-items:center;justify-content:center;
