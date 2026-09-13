@@ -133,6 +133,11 @@ const menu = new Menu({
   handlers: {
     onSingleStart: () => startSinglePlayer(),
     onSettingsSave: (patch) => { saveSettings(patch); applyQuality(settings.quality); menu.showMain(); },
+    onWatchAdForColors: async () => {
+      const unlocked = await poki.rewardedBreak();
+      if (unlocked) saveSettings({ premiumColorsUnlocked: true });
+      return unlocked;
+    },
     onOpenLeaderboard: async () => {
       menu.showLobbyConnecting('Leaderboard');
       const { rows, error } = await net.fetchTopTimes();

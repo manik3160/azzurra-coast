@@ -2,7 +2,8 @@ import { formatTime } from '../race.js';
 
 const SKILLS = ['easy', 'normal', 'hard', 'pro'];
 const QUALITIES = ['low', 'medium', 'high'];
-const COLORS = [0xb6e832, 0xe0472c, 0x2f7fd8, 0xe0872a, 0xc9337a, 0x3fa7a0, 0xf3d33a, 0xffffff];
+const BASE_COLORS = [0xb6e832, 0xe0472c, 0x2f7fd8, 0xe0872a];
+const PREMIUM_COLORS = [0xc9337a, 0x3fa7a0, 0xf3d33a, 0xffffff];
 
 /**
  * Manages every pre-race / out-of-race screen (menu, settings, multiplayer
@@ -65,8 +66,12 @@ export class Menu {
         </label>
         <label>Car colour
           <div class="swatches" id="fColor">
-            ${COLORS.map((c) => `<button class="swatch-btn ${c === s.carColor ? 'sel' : ''}" data-c="${c}" style="background:#${c.toString(16).padStart(6, '0')}"></button>`).join('')}
+            ${BASE_COLORS.map((c) => swatchBtn(c, c === s.carColor, false)).join('')}
+            ${PREMIUM_COLORS.map((c) => swatchBtn(c, c === s.carColor, !s.premiumColorsUnlocked)).join('')}
           </div>
+          ${!s.premiumColorsUnlocked ? `
+            <button class="btn ghost small" data-a="watchAd" style="margin-top:10px">🔒 Watch an ad to unlock 4 more colours</button>
+          ` : ''}
         </label>
         <label class="row"><input id="fTc" type="checkbox" ${s.tc ? 'checked' : ''} /> Traction control</label>
         <label class="row"><input id="fAbs" type="checkbox" ${s.abs ? 'checked' : ''} /> ABS</label>
@@ -82,11 +87,23 @@ export class Menu {
     $('#fAi').oninput = (e) => { $('#aiVal').textContent = e.target.value; };
     $('#fColor').onclick = (e) => {
       const btn = e.target.closest('.swatch-btn');
-      if (!btn) return;
+      if (!btn || btn.classList.contains('locked')) return;
       this.panel.querySelectorAll('.swatch-btn').forEach((b) => b.classList.remove('sel'));
       btn.classList.add('sel');
     };
     this._bind({
+      watchAd: async (btn) => {
+        btn.disabled = true;
+        btn.textContent = 'Loading ad…';
+        const unlocked = await this.h.onWatchAdForColors();
+        if (unlocked) {
+          this.settings.premiumColorsUnlocked = true;
+          this.showSettings(backTo);
+        } else {
+          btn.disabled = false;
+          btn.textContent = '🔒 Watch an ad to unlock 4 more colours (no ad available — try again later)';
+        }
+      },
       save: () => {
         const selSwatch = this.panel.querySelector('.swatch-btn.sel');
         this.h.onSettingsSave({
@@ -203,9 +220,15 @@ export class Menu {
     this.panel.onclick = (e) => {
       const btn = e.target.closest('[data-a]');
       if (!btn || btn.disabled) return;
-      map[btn.dataset.a]?.();
+      map[btn.dataset.a]?.(btn);
     };
   }
+}
+
+function swatchBtn(c, selected, locked) {
+  const hex = c.toString(16).padStart(6, '0');
+  return `<button class="swatch-btn ${selected ? 'sel' : ''} ${locked ? 'locked' : ''}" data-c="${c}"
+    style="background:#${hex}" title="${locked ? 'Watch an ad to unlock' : ''}">${locked ? '🔒' : ''}</button>`;
 }
 
 function opts(list, current) {

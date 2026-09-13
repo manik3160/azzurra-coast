@@ -18,6 +18,7 @@ const DEFAULTS = {
   tc: true,
   abs: true,
   quality: isMobileLike() ? 'low' : 'high',   // low | medium | high
+  premiumColorsUnlocked: !__POKI__,   // Poki build gates these behind a rewarded ad
 };
 
 const SKILL_SCALE = { easy: 0.55, normal: 0.78, hard: 0.92, pro: 1.02 };
