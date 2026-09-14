@@ -626,7 +626,7 @@ document.getElementById('pauseChip').onclick = () => (state.phase === 'racing' ?
 
 if (DEBUG) {
   window.__game = {
-    world, track, state, chase, step, input, hud, touch,
+    world, track, state, chase, step, input, hud, touch, renderer, scene, camera, sun, THREE,
     get race() { return session?.race; },
     get entries() { return session?.entries; },
     get player() { return session?.player; },
