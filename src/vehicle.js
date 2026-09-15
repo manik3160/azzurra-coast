@@ -46,6 +46,9 @@ export class Vehicle {
     // Casual-player driving assist: more grip, softer grass, and a yaw damper
     // that catches slides before they become spins.
     this.assist = !!opts.assist;
+    // garage upgrades (Poki career); 1 = stock
+    this.power = opts.power ?? 1;
+    this.grip = opts.grip ?? 1;
 
     const yaw = opts.heading || 0;
     const desc = RAPIER.RigidBodyDesc.dynamic()
@@ -174,7 +177,7 @@ export class Vehicle {
     const ratio = this.reverse ? -GEARS[0] * 0.8 : GEARS[this.gear - 1];
     const throttle = this.shiftTimer > 0.12 ? 0 : ctrl.throttle;
     const driveForce = (engineTorque(this.rpm) * Math.abs(ratio) * FINAL * 0.88 / RADIUS)
-      * throttle * Math.sign(ratio || 1) / 2;
+      * throttle * Math.sign(ratio || 1) / 2 * this.power;
 
     const brakeForce = ctrl.brake * 9800;
     const massShare = this.mass / 4;
@@ -262,7 +265,7 @@ export class Vehicle {
       const vf = vC.dot(wFwd);
       const vl = vC.dot(wRight);
 
-      let mu = isOnRoad ? (this.assist ? 1.85 : 1.62) : (this.assist ? 0.9 : 0.66);
+      let mu = (isOnRoad ? (this.assist ? 1.85 : 1.62) : (this.assist ? 0.9 : 0.66)) * this.grip;
       const hb = ctrl.handbrake && !w.steered;
       if (hb) mu *= 0.55;
       const maxF = mu * Fs;

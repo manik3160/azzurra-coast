@@ -123,5 +123,5 @@ export function buildScenery(scene, track, quality = {}) {
   );
   scene.add(sky);
 
-  return { sky };
+  return { sky, skyTop: sky.material.uniforms.top.value, skyBottom: sky.material.uniforms.bottom.value };
 }

@@ -1,4 +1,5 @@
 import { formatTime } from '../race.js';
+import * as career from '../career.js';
 
 const SKILLS = ['easy', 'normal', 'hard', 'pro'];
 const QUALITIES = ['low', 'medium', 'high'];
@@ -24,12 +25,20 @@ export class Menu {
 
   showMain() {
     this.show();
+    const s = this.settings;
+    const cup = career.currentCup(s);
+    const raceLabel = cup.race > 0
+      ? `Continue · ${career.tierOf(s).name} ${cup.race + 1}/${career.CUP_LENGTH}`
+      : `Race · ${career.tierOf(s).name}`;
     this.panel.innerHTML = `
       <div class="eyebrow">Circuit</div>
       <h1>Azzurra Coast</h1>
-      <p class="lede">${this.settings.laps} lap${this.settings.laps > 1 ? 's' : ''} · ${this.settings.aiCount} AI · rear-wheel drive</p>
+      <p class="lede">${__POKI__
+        ? `🪙 ${s.coins} coins · ${career.TIERS.length - s.cupTier - 1} cups to unlock`
+        : `${s.laps} lap${s.laps > 1 ? 's' : ''} · ${s.aiCount} AI · rear-wheel drive`}</p>
       <div class="menu-list">
-        <button class="btn" data-a="single">${__POKI__ ? 'Race' : 'Single Player'}</button>
+        <button class="btn" data-a="single">${__POKI__ ? raceLabel : 'Single Player'}</button>
+        ${__POKI__ ? '<button class="btn ghost" data-a="garage">Garage</button>' : ''}
         ${__POKI__ ? '' : `
           <button class="btn ghost" data-a="mp" ${this.netAvailable ? '' : 'disabled'}>Multiplayer</button>
           <button class="btn ghost" data-a="board" ${this.netAvailable ? '' : 'disabled'}>Leaderboard</button>`}
@@ -39,9 +48,53 @@ export class Menu {
     `;
     this._bind({
       single: () => this.h.onSingleStart(),
+      garage: () => this.showGarage(),
       mp: () => this.showMultiplayerChoice(),
       board: () => this.h.onOpenLeaderboard(),
       settings: () => this.showSettings(),
+    });
+  }
+
+  /** Poki career: spend coins on upgrades and paint. */
+  showGarage(message = '') {
+    this.show();
+    const s = this.settings;
+    const upgradeRow = (kind) => {
+      const u = career.UPGRADES[kind];
+      const lvl = s[`${kind}Lvl`];
+      const cost = career.upgradeCost(s, kind);
+      const pips = Array.from({ length: u.costs.length }, (_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('');
+      return `
+        <div class="garage-row">
+          <div class="garage-info"><strong>${u.label}</strong><span>${u.blurb}</span><div class="pips">${pips}</div></div>
+          ${cost === null
+            ? '<button class="btn ghost small" disabled>Max</button>'
+            : `<button class="btn small" data-a="buy" data-k="${kind}" ${s.coins < cost ? 'disabled' : ''}>🪙 ${cost}</button>`}
+        </div>`;
+    };
+    this.panel.innerHTML = `
+      <div class="eyebrow">Garage</div>
+      <h1>🪙 ${s.coins}</h1>
+      <p class="lede">Win races to earn coins. Upgrades make your car faster than the rivals in harder cups.</p>
+      ${message ? `<p class="lede accent">${escapeHtml(message)}</p>` : ''}
+      <div class="garage">
+        ${upgradeRow('engine')}
+        ${upgradeRow('grip')}
+        <div class="garage-row">
+          <div class="garage-info"><strong>Premium paint</strong><span>4 extra colours, pick them in Settings</span></div>
+          ${s.premiumColorsUnlocked
+            ? '<button class="btn ghost small" disabled>Owned</button>'
+            : `<button class="btn small" data-a="paint" ${s.coins < career.PAINT_COST ? 'disabled' : ''}>🪙 ${career.PAINT_COST}</button>`}
+        </div>
+      </div>
+      <button class="btn" data-a="race">Race</button>
+      <button class="btn ghost" data-a="back">Back</button>
+    `;
+    this._bind({
+      buy: (btn) => this.showGarage(this.h.onGarageBuy(btn.dataset.k) ? `${career.UPGRADES[btn.dataset.k].label} upgraded!` : ''),
+      paint: () => this.showGarage(this.h.onGarageBuy('paint') ? 'Premium paint unlocked — choose it in Settings' : ''),
+      race: () => this.h.onSingleStart(),
+      back: () => this.showMain(),
     });
   }
 
@@ -55,7 +108,7 @@ export class Menu {
         <label>Driver name
           <input id="fName" type="text" maxlength="16" value="${escapeAttr(s.playerName)}" />
         </label>
-        <label>Laps <span class="val" id="lapsVal">${s.laps}</span>
+        <label ${__POKI__ ? 'hidden' : ''}>Laps <span class="val" id="lapsVal">${s.laps}</span>
           <input id="fLaps" type="range" min="1" max="10" value="${s.laps}" />
         </label>
         <label>AI opponents <span class="val" id="aiVal">${s.aiCount}</span>

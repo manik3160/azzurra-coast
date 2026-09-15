@@ -15,6 +15,11 @@ import { settings, saveSettings, skillValue, QUALITY_PRESETS } from './settings.
 import * as poki from './poki.js';
 import { TouchControls, isTouchDevice } from './touch.js';
 import { GameAudio } from './audio.js';
+import * as career from './career.js';
+
+// The Poki build runs single player as a cup series with coins and upgrades;
+// the web build keeps plain one-off races.
+const CAREER = __POKI__;
 
 // Multiplayer + leaderboard are loaded dynamically so the Poki build can drop
 // them entirely: Poki blocks external requests and forbids multiplayer
@@ -58,13 +63,44 @@ Object.assign(sun.shadow.camera, { left: -SH, right: SH, top: SH, bottom: -SH })
 sun.shadow.bias = -0.0009;
 scene.add(sun, sun.target);
 
+// Lighting presets for the career's rotating race conditions. `fogScale`
+// shortens the draw distance for murkier weather.
+const CONDITION_LOOKS = {
+  day:      { hemi: [0xdff0ff, 0x6b7a55, 1.05], sun: [0xfff4e2, 1.55], fog: 0xc6d4d6, fogScale: 1,    sky: [0x93b4c4, 0xd9e4e2] },
+  sunset:   { hemi: [0xffd9b8, 0x5e4c3a, 0.95], sun: [0xffa566, 1.45], fog: 0xe3b999, fogScale: 0.9,  sky: [0x6c7fae, 0xf1b27e] },
+  overcast: { hemi: [0xd3dadd, 0x5f6862, 1.0],  sun: [0xe2e8ec, 0.55], fog: 0xaeb7ba, fogScale: 0.7,  sky: [0x8e999e, 0xbcc4c6] },
+  dusk:     { hemi: [0x98a6d6, 0x333848, 0.8],  sun: [0xc6ceff, 0.6],  fog: 0x47506e, fogScale: 0.75, sky: [0x1f2946, 0x646a92] },
+};
+let look = CONDITION_LOOKS.day;
+let qualityPreset = null;
+let skyColors = null;
+
+function applyFog() {
+  if (!qualityPreset) return;
+  const far = qualityPreset.fogFar * look.fogScale;
+  scene.fog = new THREE.Fog(look.fog, far * 0.18, far);
+}
+
+function applyConditions(name) {
+  look = CONDITION_LOOKS[name] ?? CONDITION_LOOKS.day;
+  hemi.color.setHex(look.hemi[0]);
+  hemi.groundColor.setHex(look.hemi[1]);
+  hemi.intensity = look.hemi[2];
+  sun.color.setHex(look.sun[0]);
+  sun.intensity = look.sun[1];
+  skyColors?.skyTop.setHex(look.sky[0]);
+  skyColors?.skyBottom.setHex(look.sky[1]);
+  applyFog();
+}
+
 function applyQuality(q) {
   const preset = QUALITY_PRESETS[q] ?? QUALITY_PRESETS.high;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio));
   renderer.shadowMap.enabled = preset.shadows;
   sun.castShadow = preset.shadows;
   sun.shadow.mapSize.set(preset.shadowMapSize, preset.shadowMapSize);
-  scene.fog = new THREE.Fog(0xc6d4d6, preset.fogFar * 0.18, preset.fogFar);
+  qualityPreset = preset;
+  applyFog();
   return preset;
 }
 const bootQuality = applyQuality(settings.quality);
@@ -91,7 +127,7 @@ const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
 world.timestep = FIXED;
 
 const track = buildTrack(scene, world, RAPIER);
-buildScenery(scene, track, bootQuality);
+skyColors = buildScenery(scene, track, bootQuality);
 
 // static overview camera until the first race starts
 camera.position.set(track.center[0].x - 40, 22, track.center[0].z + 10);
@@ -158,6 +194,17 @@ const menu = new Menu({
   settings, netAvailable,
   handlers: {
     onSingleStart: () => startSinglePlayer(),
+    onGarageBuy: (kind) => {
+      if (kind === 'paint') {
+        if (settings.premiumColorsUnlocked || settings.coins < career.PAINT_COST) return false;
+        saveSettings({ coins: settings.coins - career.PAINT_COST, premiumColorsUnlocked: true });
+        return true;
+      }
+      const cost = career.upgradeCost(settings, kind);
+      if (cost === null || settings.coins < cost) return false;
+      saveSettings({ coins: settings.coins - cost, [`${kind}Lvl`]: settings[`${kind}Lvl`] + 1 });
+      return true;
+    },
     onSettingsSave: (patch) => { saveSettings(patch); applyQuality(settings.quality); menu.showMain(); },
     onWatchAdForColors: async () => {
       const unlocked = await withAdSilence(poki.rewardedBreak);
@@ -273,21 +320,14 @@ function disposeSession(s) {
   for (const e of s.entries) e.vehicle.dispose();
 }
 
-/**
- * Poki players are casual and decide within seconds, so the portal build eases
- * the AI in: the first race is gentle and each finished race raises the pace
- * until it reaches the difficulty picked in Settings.
- */
-function aiSkillForNextRace() {
-  const chosen = skillValue(settings.aiSkill);
-  if (!__POKI__) return chosen;
-  return Math.min(chosen, 0.5 + 0.06 * settings.racesFinished);
-}
-
 function startSinglePlayer() {
   cancelAutoNext();
   menu.hide();
-  const aiProfiles = makeProfiles(settings.aiCount, aiSkillForNextRace());
+  const chosenSkill = skillValue(settings.aiSkill);
+  const cup = CAREER ? career.currentCup(settings) : null;
+  if (CAREER) applyConditions(career.conditionFor(cup));
+  const aiProfiles = makeProfiles(settings.aiCount, CAREER ? career.aiSkill(settings, chosenSkill) : chosenSkill);
+  const boost = CAREER ? career.carBoost(settings) : {};
   const slots = gridSlots(track, aiProfiles.length + 1);
   const entries = [];
 
@@ -303,12 +343,12 @@ function startSinglePlayer() {
   const player = new Vehicle({ world, RAPIER, scene }, {
     name: settings.playerName, color: settings.carColor, accent: 0xf3a13a,
     position: s.position, heading: s.heading, isPlayer: true, tc: settings.tc, abs: settings.abs,
-    assist: __POKI__,
+    assist: __POKI__, power: boost.power, grip: boost.grip,
   });
   entries.push({ vehicle: player, name: settings.playerName, color: settings.carColor, isPlayer: true });
 
   disposeSession(session);
-  const race = new Race(track, entries, settings.laps);
+  const race = new Race(track, entries, CAREER ? 1 : settings.laps);
   finalizeEntries(entries, race);
   session = { entries, race, player, netRole: null, lobby: null, remoteHumans: null, remoteAI: null };
   hud.setTotals(entries.length, race.totalLaps);
@@ -488,19 +528,23 @@ async function beginCountdownWithAd(seconds) {
   // never open a session with an ad — the player hasn't played anything yet
   if (racesStarted++ > 0) await withAdSilence(poki.commercialBreak);
   beginCountdown(seconds);
-  showTutorial(__POKI__ && settings.racesFinished === 0);
+  if (__POKI__ && settings.racesFinished === 0) showTutorial(true);
+  else if (CAREER && !session.netRole) {
+    const cup = career.currentCup(settings);
+    showTutorial(true, `${career.tierOf(settings).name} · Race ${cup.race + 1} of ${career.CUP_LENGTH} · ${career.CONDITION_LABEL[career.conditionFor(cup)]}`, 4);
+  }
 }
 
-// ---------------------------------------------------------------- first-race control hint
+// ---------------------------------------------------------------- first-race control hint / race banner
 const tutorialEl = document.getElementById('tutorial');
 let tutorialTimer = 0;
 
-function showTutorial(on) {
-  tutorialEl.textContent = useTouch
+function showTutorial(on, text, seconds = 12) {
+  tutorialEl.textContent = text ?? (useTouch
     ? 'Your car accelerates by itself — hold ◄ ► to steer, BRAKE for corners'
-    : 'Hold ↑ or W to accelerate — ← → or A D to steer';
+    : 'Hold ↑ or W to accelerate — ← → or A D to steer');
   tutorialEl.classList.toggle('show', on);
-  tutorialTimer = on ? 12 : 0;
+  tutorialTimer = on ? seconds : 0;
 }
 
 // ---------------------------------------------------------------- auto-advance to the next race
@@ -513,14 +557,14 @@ function cancelAutoNext() {
 }
 
 /** Counts down on the results screen, pausing while the tab is hidden. */
-function scheduleAutoNext(labelEl, go) {
+function scheduleAutoNext(labelEl, go, seconds = AUTO_NEXT_SECONDS, what = 'Next race') {
   cancelAutoNext();
-  let left = AUTO_NEXT_SECONDS;
-  labelEl.textContent = `Next race in ${left}…`;
+  let left = seconds;
+  labelEl.textContent = `${what} in ${left}…`;
   autoNextTimer = setInterval(() => {
     if (document.hidden) return;
     left--;
-    if (left > 0) { labelEl.textContent = `Next race in ${left}…`; return; }
+    if (left > 0) { labelEl.textContent = `${what} in ${left}…`; return; }
     cancelAutoNext();
     go();
   }, 1000);
@@ -602,6 +646,7 @@ function finish() {
   const multiplayer = !!session.netRole;
   const autoNext = __POKI__ && !multiplayer;
   if (!multiplayer && race.player.finished) saveSettings({ racesFinished: settings.racesFinished + 1 });
+  if (CAREER && !multiplayer) { showCareerResults(race); return; }
 
   const rows = race.order.map((e) => {
     const swatch = `#${(e.isPlayer ? settings.carColor : e.color).toString(16).padStart(6, '0')}`;
@@ -651,6 +696,91 @@ function finish() {
   if (session.lobby) {
     session.lobby.sendFinish({ name: settings.playerName, position: p.position, finishTime: p.finishTime });
   }
+}
+
+// ---------------------------------------------------------------- career results
+function showCareerResults(race) {
+  const r = career.scoreRace(settings, race.order);
+  saveSettings(r.patch);
+  const earned = r.raceCoins + r.cupBonus;
+  const p = race.player;
+  const colorOf = (key) => {
+    if (key === career.PLAYER_KEY) return settings.carColor;
+    return race.entries.find((e) => e.name === key)?.color ?? 0x888888;
+  };
+  const hex = (c) => `#${c.toString(16).padStart(6, '0')}`;
+
+  const rows = r.standings.map((s, i) => `
+    <tr class="${s.key === career.PLAYER_KEY ? 'you' : ''}"><td>${i + 1}</td>
+      <td><span class="swatch" style="background:${hex(colorOf(s.key))}"></span>${s.key === career.PLAYER_KEY ? escapeText(settings.playerName) : s.key}</td>
+      <td class="gain">+${s.gained}</td><td>${s.pts}</td></tr>`).join('');
+
+  const headline = r.cupOver
+    ? (r.cupPos === 1 ? `🏆 ${r.tierName} champion!` : `${r.tierName} finished · P${r.cupPos} overall`)
+    : `Race ${r.raceNumber} of ${career.CUP_LENGTH} · ${p.position === 1 ? 'You won!' : `Finished P${p.position}`}`;
+  const promo = r.cupOver
+    ? (r.promoted ? `<p class="lede accent">Unlocked: ${r.nextTierName}</p>`
+      : (settings.cupTier === career.TIERS.length - 1 && r.cupPos <= 3 ? '' : '<p class="lede">Finish in the top 3 to unlock the next cup</p>'))
+    : '';
+
+  overlayBody.innerHTML = `
+    <p class="lede">${headline}${p.best !== null ? ` · best lap ${formatTime(p.best)}` : ''}</p>
+    ${promo}
+    <p class="coins">🪙 +<span id="earnedCoins">${earned}</span> <span class="dim">· total <span id="totalCoins">${settings.coins}</span></span></p>
+    <table class="results standings">${rows}</table>
+    ${poki.canOfferReward() && earned > 0 ? '<button class="btn ghost small" id="doubleBtn" style="margin:0 0 10px">🎬 Watch an ad to double your coins</button>' : ''}
+    <p class="lede" id="autoNextLabel" style="margin:0 0 12px"></p>
+    <div class="btn-row">
+      <button class="btn ghost" id="garageBtn">Garage</button>
+      <button class="btn ghost" id="menuBtn">Menu</button>
+    </div>
+  `;
+
+  const leave = (show) => {
+    cancelAutoNext();
+    startBtn.onclick = null;
+    overlay.classList.add('hidden');
+    hud.show(false);
+    disposeSession(session);
+    session = null;
+    show();
+  };
+  document.getElementById('menuBtn').onclick = () => leave(() => menu.showMain());
+  document.getElementById('garageBtn').onclick = () => leave(() => menu.showGarage());
+
+  const doubleBtn = document.getElementById('doubleBtn');
+  if (doubleBtn) {
+    doubleBtn.onclick = async () => {
+      cancelAutoNext();
+      document.getElementById('autoNextLabel').textContent = '';
+      doubleBtn.disabled = true;
+      doubleBtn.textContent = 'Loading ad…';
+      const rewarded = await withAdSilence(poki.rewardedBreak);
+      if (rewarded) {
+        saveSettings({ coins: settings.coins + earned });
+        document.getElementById('earnedCoins').textContent = earned * 2;
+        document.getElementById('totalCoins').textContent = settings.coins;
+        doubleBtn.textContent = 'Coins doubled ✓';
+      } else {
+        doubleBtn.textContent = 'No ad available right now';
+      }
+    };
+  }
+
+  startBtn.textContent = r.cupOver ? 'Next Cup' : 'Next Race';
+  startBtn.onclick = () => {
+    startBtn.onclick = null;   // the auto-advance timer and a click must not both start a race
+    cancelAutoNext();
+    startSinglePlayer();
+  };
+  overlay.classList.remove('hidden');
+  hud.message('');
+  scheduleAutoNext(document.getElementById('autoNextLabel'), () => startBtn.onclick?.(),
+    r.cupOver ? 10 : AUTO_NEXT_SECONDS, r.cupOver ? 'Next cup' : 'Next race');
+}
+
+function escapeText(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 // ---------------------------------------------------------------- loop

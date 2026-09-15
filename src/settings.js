@@ -20,7 +20,13 @@ const DEFAULTS = {
   quality: isMobileLike() ? 'low' : 'high',   // low | medium | high
   premiumColorsUnlocked: !__POKI__,   // Poki build gates these behind a rewarded ad
   muted: false,
-  racesFinished: 0,        // drives the Poki difficulty ramp and first-race tutorial
+  racesFinished: 0,        // drives the first-race tutorial
+  // career (Poki build) — see career.js
+  coins: 0,
+  engineLvl: 0,
+  gripLvl: 0,
+  cupTier: 0,
+  cup: null,               // { race, points } while a cup is in progress
 };
 
 const SKILL_SCALE = { easy: 0.55, normal: 0.78, hard: 0.92, pro: 1.02 };
@@ -41,6 +47,13 @@ function load() {
   if (!SKILL_SCALE[s.aiSkill]) s.aiSkill = DEFAULTS.aiSkill;
   if (!['low', 'medium', 'high'].includes(s.quality)) s.quality = DEFAULTS.quality;
   s.racesFinished = clampInt(s.racesFinished, 0, 1e6, 0);
+  s.coins = clampInt(s.coins, 0, 1e9, 0);
+  s.engineLvl = clampInt(s.engineLvl, 0, 5, 0);
+  s.gripLvl = clampInt(s.gripLvl, 0, 5, 0);
+  s.cupTier = clampInt(s.cupTier, 0, 4, 0);
+  const cupOk = s.cup && typeof s.cup === 'object' && Number.isInteger(s.cup.race)
+    && s.cup.race >= 0 && s.cup.race < 10 && s.cup.points && typeof s.cup.points === 'object';
+  if (!cupOk) s.cup = null;
   if (!s.playerName || !s.playerName.trim()) s.playerName = randomName();
   return s;
 }
