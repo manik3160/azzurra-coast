@@ -43,6 +43,9 @@ export class Vehicle {
     this.isPlayer = !!opts.isPlayer;
     this.tc = opts.tc !== false;
     this.abs = opts.abs !== false;
+    // Casual-player driving assist: more grip, softer grass, and a yaw damper
+    // that catches slides before they become spins.
+    this.assist = !!opts.assist;
 
     const yaw = opts.heading || 0;
     const desc = RAPIER.RigidBodyDesc.dynamic()
@@ -259,7 +262,7 @@ export class Vehicle {
       const vf = vC.dot(wFwd);
       const vl = vC.dot(wRight);
 
-      let mu = isOnRoad ? 1.62 : 0.66;
+      let mu = isOnRoad ? (this.assist ? 1.85 : 1.62) : (this.assist ? 0.9 : 0.66);
       const hb = ctrl.handbrake && !w.steered;
       if (hb) mu *= 0.55;
       const maxF = mu * Fs;
@@ -277,7 +280,7 @@ export class Vehicle {
         Flong += -Math.sign(vf) * Math.min(brakeHere, Math.abs(vf) * massShare / dt);
       }
       Flong -= vf * 5.5;
-      if (!isOnRoad) Flong -= vf * 26;
+      if (!isOnRoad) Flong -= vf * (this.assist ? 12 : 26);
 
       const combined = Math.hypot(Flat, Flong);
       if (combined > maxF) {
@@ -311,6 +314,12 @@ export class Vehicle {
     this.tilt = up.y;
     this.offRoad = groundedCount > 0 && onRoadCount < groundedCount * 0.5;
     this.driftAmount = THREE.MathUtils.clamp(Math.abs(vLateral) / 9, 0, 1) * (this.grounded ? 1 : 0);
+
+    // ---- assist: damp yaw while the car is sliding sideways (not when drifting on purpose) ----
+    if (this.assist && groundedCount >= 3 && !ctrl.handbrake) {
+      const slide = THREE.MathUtils.clamp((Math.abs(vLateral) - 1.5) / 4, 0, 1);
+      if (slide > 0) body.applyTorqueImpulse({ x: 0, y: -av.y * 2600 * slide * dt, z: 0 }, true);
+    }
 
     // ---- aero ----
     if (speed > 0.5) {

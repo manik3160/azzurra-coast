@@ -247,9 +247,21 @@ function disposeSession(s) {
   for (const e of s.entries) e.vehicle.dispose();
 }
 
+/**
+ * Poki players are casual and decide within seconds, so the portal build eases
+ * the AI in: the first race is gentle and each finished race raises the pace
+ * until it reaches the difficulty picked in Settings.
+ */
+function aiSkillForNextRace() {
+  const chosen = skillValue(settings.aiSkill);
+  if (!__POKI__) return chosen;
+  return Math.min(chosen, 0.5 + 0.06 * settings.racesFinished);
+}
+
 function startSinglePlayer() {
+  cancelAutoNext();
   menu.hide();
-  const aiProfiles = makeProfiles(settings.aiCount, skillValue(settings.aiSkill));
+  const aiProfiles = makeProfiles(settings.aiCount, aiSkillForNextRace());
   const slots = gridSlots(track, aiProfiles.length + 1);
   const entries = [];
 
@@ -265,6 +277,7 @@ function startSinglePlayer() {
   const player = new Vehicle({ world, RAPIER, scene }, {
     name: settings.playerName, color: settings.carColor, accent: 0xf3a13a,
     position: s.position, heading: s.heading, isPlayer: true, tc: settings.tc, abs: settings.abs,
+    assist: __POKI__,
   });
   entries.push({ vehicle: player, name: settings.playerName, color: settings.carColor, isPlayer: true });
 
@@ -402,9 +415,48 @@ function recover(e, dt) {
  * Shows an ad at the natural break before a race, then starts the countdown.
  * Resolves immediately when no ad is available, so this is safe everywhere.
  */
+let racesStarted = 0;
+
 async function beginCountdownWithAd(seconds) {
-  await poki.commercialBreak();
+  // never open a session with an ad — the player hasn't played anything yet
+  if (racesStarted++ > 0) await poki.commercialBreak();
   beginCountdown(seconds);
+  showTutorial(__POKI__ && settings.racesFinished === 0);
+}
+
+// ---------------------------------------------------------------- first-race control hint
+const tutorialEl = document.getElementById('tutorial');
+let tutorialTimer = 0;
+
+function showTutorial(on) {
+  tutorialEl.textContent = useTouch
+    ? 'Your car accelerates by itself — hold ◄ ► to steer, BRAKE for corners'
+    : 'Hold ↑ or W to accelerate — ← → or A D to steer';
+  tutorialEl.classList.toggle('show', on);
+  tutorialTimer = on ? 12 : 0;
+}
+
+// ---------------------------------------------------------------- auto-advance to the next race
+const AUTO_NEXT_SECONDS = 5;
+let autoNextTimer = null;
+
+function cancelAutoNext() {
+  if (autoNextTimer) clearInterval(autoNextTimer);
+  autoNextTimer = null;
+}
+
+/** Counts down on the results screen, pausing while the tab is hidden. */
+function scheduleAutoNext(labelEl, go) {
+  cancelAutoNext();
+  let left = AUTO_NEXT_SECONDS;
+  labelEl.textContent = `Next race in ${left}…`;
+  autoNextTimer = setInterval(() => {
+    if (document.hidden) return;
+    left--;
+    if (left > 0) { labelEl.textContent = `Next race in ${left}…`; return; }
+    cancelAutoNext();
+    go();
+  }, 1000);
 }
 
 function beginCountdown(seconds) {
@@ -474,8 +526,11 @@ function finish() {
   touch.enabled = false;
   touch.show(false);
   poki.gameplayStop();
+  showTutorial(false);
   const race = session.race;
   const multiplayer = !!session.netRole;
+  const autoNext = __POKI__ && !multiplayer;
+  if (!multiplayer && race.player.finished) saveSettings({ racesFinished: settings.racesFinished + 1 });
 
   const rows = race.order.map((e) => {
     const swatch = `#${(e.isPlayer ? settings.carColor : e.color).toString(16).padStart(6, '0')}`;
@@ -487,13 +542,15 @@ function finish() {
   const p = race.player;
   const canSubmit = !__POKI__ && net?.leaderboardEnabled() && p.best !== null;
   overlayBody.innerHTML = `
-    <p class="lede">Finished P${p.position} · best lap ${formatTime(p.best)}</p>
+    <p class="lede">${p.position === 1 ? 'You won! · ' : `Finished P${p.position} · `}best lap ${formatTime(p.best)}</p>
     <table class="results">${rows}</table>
     ${canSubmit ? '<button class="btn ghost" id="submitLapBtn" style="width:100%;margin:0 0 10px">Submit best lap</button>' : ''}
+    ${autoNext ? '<p class="lede" id="autoNextLabel" style="margin:0 0 12px"></p>' : ''}
     <button class="btn ghost" id="menuBtn" style="width:100%;margin:0">Main Menu</button>
   `;
   if (canSubmit) document.getElementById('submitLapBtn').onclick = (e) => submitBestLap(e.target);
   document.getElementById('menuBtn').onclick = () => {
+    cancelAutoNext();
     overlay.classList.add('hidden');
     hud.show(false);
     disposeSession(session);
@@ -502,8 +559,10 @@ function finish() {
     else menu.showMain();
   };
 
-  startBtn.textContent = multiplayer ? 'Back to Lobby' : 'Race Again';
+  startBtn.textContent = multiplayer ? 'Back to Lobby' : (autoNext ? 'Next Race' : 'Race Again');
   startBtn.onclick = () => {
+    startBtn.onclick = null;   // the auto-advance timer and a click must not both start a race
+    cancelAutoNext();
     if (multiplayer) {
       disposeSession(session);
       session = null;
@@ -516,6 +575,7 @@ function finish() {
   };
   overlay.classList.remove('hidden');
   hud.message('');
+  if (autoNext) scheduleAutoNext(document.getElementById('autoNextLabel'), () => startBtn.onclick?.());
 
   if (session.lobby) {
     session.lobby.sendFinish({ name: settings.playerName, position: p.position, finishTime: p.finishTime });
@@ -595,6 +655,10 @@ function step(dt) {
     }
 
     hud.update(dt, race, player);
+    if (tutorialTimer > 0 && state.phase === 'racing') {
+      tutorialTimer -= dt;
+      if (tutorialTimer <= 0) tutorialEl.classList.remove('show');
+    }
     minimap.draw(race.entries);
 
     chase.update(dt, player);
@@ -645,5 +709,9 @@ if (DEBUG) {
     start: () => startSinglePlayer(),
   };
 }
+
+// Poki measures time-to-fun: skip the menu and put the player on the grid
+// straight away. The menu is still reachable from the results screen.
+if (__POKI__) startSinglePlayer();
 
 requestAnimationFrame(frame);

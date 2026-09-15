@@ -19,6 +19,7 @@ const DEFAULTS = {
   abs: true,
   quality: isMobileLike() ? 'low' : 'high',   // low | medium | high
   premiumColorsUnlocked: !__POKI__,   // Poki build gates these behind a rewarded ad
+  racesFinished: 0,         // drives the Poki difficulty ramp and first-race tutorial
 };
 
 const SKILL_SCALE = { easy: 0.55, normal: 0.78, hard: 0.92, pro: 1.02 };
@@ -38,6 +39,7 @@ function load() {
   s.aiCount = clampInt(s.aiCount, 0, 9, DEFAULTS.aiCount);
   if (!SKILL_SCALE[s.aiSkill]) s.aiSkill = DEFAULTS.aiSkill;
   if (!['low', 'medium', 'high'].includes(s.quality)) s.quality = DEFAULTS.quality;
+  s.racesFinished = clampInt(s.racesFinished, 0, 1e6, 0);
   if (!s.playerName || !s.playerName.trim()) s.playerName = randomName();
   return s;
 }

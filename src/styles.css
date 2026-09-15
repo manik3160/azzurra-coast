@@ -76,6 +76,10 @@ kbd.wide{padding:3px 12px}
   font-style:italic;letter-spacing:-.03em;opacity:0;transition:opacity .18s ease}
 .center-msg.show{opacity:1}
 .center-msg.small{font-size:44px;letter-spacing:.02em;font-style:normal}
+.tutorial{position:absolute;left:50%;top:18%;transform:translateX(-50%);max-width:min(560px,86vw);
+  padding:10px 18px;border-radius:999px;background:rgba(8,11,13,.72);border:1px solid var(--stroke);
+  font-size:13px;letter-spacing:.06em;text-align:center;opacity:0;transition:opacity .25s ease;pointer-events:none}
+.tutorial.show{opacity:1}
 
 /* overlays */
 .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
