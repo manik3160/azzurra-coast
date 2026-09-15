@@ -413,6 +413,43 @@ function onRoad(point, hint) {
   return lat <= ROAD_HALF + 1.0;
 }
 
+// ---------------------------------------------------------------- stuck hint
+// Players who wedge the car against a barrier often don't know about R (or,
+// on touch, the reset pad), so tell them once they've been stuck a moment.
+const stuckHintEl = document.getElementById('stuckHint');
+const touchResetEl = document.getElementById('touchReset');
+stuckHintEl.textContent = useTouch ? 'Stuck? Tap ↺ RESET' : 'Stuck? Press R to reset your car';
+const stuck = { time: 0, moved: false, shown: false };
+
+function resetStuckHint() {
+  stuck.time = 0;
+  stuck.moved = false;
+  setStuckHint(false);
+}
+
+function setStuckHint(on) {
+  if (stuck.shown === on) return;
+  stuck.shown = on;
+  stuckHintEl.classList.toggle('show', on);
+  touchResetEl.classList.toggle('nudge', on);
+}
+
+function updateStuckHint(dt, player) {
+  const v = player.vehicle;
+  if (v.speedKmh > 20) stuck.moved = true;   // standing still on the grid isn't "stuck"
+  const slow = v.speedKmh < 8 || (v.offRoad && v.speedKmh < 18) || v.tilt < 0.5;
+  stuck.time = stuck.moved && (slow || player.wrongWay) ? stuck.time + dt : 0;
+  if (stuck.time > 2) setStuckHint(true);
+  else if (stuck.shown && v.speedKmh > 20 && !v.offRoad && !player.wrongWay) setStuckHint(false);
+}
+
+function resetPlayerCar() {
+  if (state.phase !== 'racing' || !session) return;
+  respawn(session.race.player);
+  resetStuckHint();
+  stuck.moved = true;
+}
+
 function respawn(entry) {
   const i = (entry.idx + 4) % track.samples;
   const c = track.line[i];
@@ -433,7 +470,11 @@ function recover(e, dt) {
   if (e.stuckFor > limit) {
     respawn(e.entry);
     e.stuckFor = 0;
-    if (e.isPlayer) hud.message('RECOVERED', { small: true, hold: 1.1 });
+    if (e.isPlayer) {
+      hud.message('RECOVERED', { small: true, hold: 1.1 });
+      resetStuckHint();
+      stuck.moved = true;
+    }
   }
 }
 
@@ -491,6 +532,7 @@ function beginCountdown(seconds) {
   touch.show(useTouch);
   hud.setCamera(chase.name);
   state.phase = 'countdown';
+  resetStuckHint();
   state.countdown = seconds;
   session.race.reset();
   input.enabled = false;
@@ -502,6 +544,7 @@ function beginCountdown(seconds) {
 
 function pause() {
   state.phase = 'paused';
+  setStuckHint(false);
   input.enabled = false;
   touch.enabled = false;
   touch.show(false);
@@ -548,6 +591,7 @@ async function submitBestLap(button) {
 
 function finish() {
   state.phase = 'finished';
+  resetStuckHint();
   input.enabled = false;
   touch.enabled = false;
   touch.show(false);
@@ -670,7 +714,10 @@ function step(dt) {
     if (steps === 6) acc = 0;
 
     race.update(dt);
-    if (state.phase === 'racing') for (const e of entries) recover(e, dt);
+    if (state.phase === 'racing') {
+      for (const e of entries) recover(e, dt);
+      updateStuckHint(dt, race.player);
+    }
 
     if (session.lobby && (state.phase === 'racing' || state.phase === 'countdown')) {
       netAcc += dt;
@@ -710,7 +757,8 @@ function frame(now) {
 }
 
 input.bind('c', () => { if (state.phase === 'racing') hud.setCamera(chase.cycle()); });
-input.bind('r', () => { if (state.phase === 'racing' && session) respawn(session.race.player); });
+input.bind('r', resetPlayerCar);
+touch.onReset = resetPlayerCar;
 input.bind('escape', () => {
   if (state.phase === 'racing') pause();
   else if (state.phase === 'paused') resume();

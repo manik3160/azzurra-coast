@@ -35,6 +35,7 @@ export class TouchControls {
 
     const press = (name, el, pointerId) => {
       if (name === 'pause') { this.onPause?.(); return; }
+      if (name === 'reset') { if (this.enabled) this.onReset?.(); return; }
       this.byPointer.set(pointerId, { name, el });
       this.active.get(name)?.add(pointerId);
       el.classList.add('held');
