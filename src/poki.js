@@ -71,7 +71,7 @@ export function gameplayStop() {
  */
 export async function commercialBreak(onStart) {
   const s = sdk();
-  if (!ready || !s?.commercialBreak) return;
+  if (!ready || inAd || !s?.commercialBreak) return;
   gameplayStop();
   inAd = true;
   try {
@@ -92,7 +92,7 @@ export async function commercialBreak(onStart) {
  */
 export async function rewardedBreak(onStart) {
   const s = sdk();
-  if (!ready || !s?.rewardedBreak) return false;
+  if (!ready || inAd || !s?.rewardedBreak) return false;
   gameplayStop();
   inAd = true;
   try {

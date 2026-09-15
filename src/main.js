@@ -434,9 +434,19 @@ function pause() {
   overlay.classList.remove('hidden');
 }
 
+let resuming = false;
+
 /** Coming out of a pause is a natural break, so it gets an ad opportunity. */
 async function resume() {
-  await poki.commercialBreak();
+  // Esc or a second click while the ad is up must not queue another break
+  if (resuming) return;
+  resuming = true;
+  try {
+    await poki.commercialBreak();
+  } finally {
+    resuming = false;
+  }
+  if (state.phase !== 'paused') return;
   overlay.classList.add('hidden');
   state.phase = 'racing';
   input.enabled = true;
