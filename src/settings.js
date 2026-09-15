@@ -19,7 +19,8 @@ const DEFAULTS = {
   abs: true,
   quality: isMobileLike() ? 'low' : 'high',   // low | medium | high
   premiumColorsUnlocked: !__POKI__,   // Poki build gates these behind a rewarded ad
-  racesFinished: 0,         // drives the Poki difficulty ramp and first-race tutorial
+  muted: false,
+  racesFinished: 0,        // drives the Poki difficulty ramp and first-race tutorial
 };
 
 const SKILL_SCALE = { easy: 0.55, normal: 0.78, hard: 0.92, pro: 1.02 };

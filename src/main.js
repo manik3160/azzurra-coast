@@ -14,6 +14,7 @@ import { Menu } from './ui/menu.js';
 import { settings, saveSettings, skillValue, QUALITY_PRESETS } from './settings.js';
 import * as poki from './poki.js';
 import { TouchControls, isTouchDevice } from './touch.js';
+import { GameAudio } from './audio.js';
 
 // Multiplayer + leaderboard are loaded dynamically so the Poki build can drop
 // them entirely: Poki blocks external requests and forbids multiplayer
@@ -101,6 +102,31 @@ sun.target.updateMatrixWorld();
 
 const chase = new ChaseCamera(camera);
 const hud = new Hud();
+
+// Audio can only start from a user gesture; the Poki build has none before the
+// race begins, so the first key press or tap unlocks it.
+const audio = new GameAudio(!!settings.muted);
+const unlockAudio = () => audio.unlock();
+for (const ev of ['keydown', 'pointerdown', 'touchend', 'click']) window.addEventListener(ev, unlockAudio, { capture: true });
+document.addEventListener('visibilitychange', () => audio.setHidden(document.hidden));
+window.addEventListener('click', (e) => { if (e.target.closest?.('.btn')) audio.click(); });
+
+const muteIcon = document.getElementById('muteIcon');
+function toggleMute() {
+  saveSettings({ muted: !settings.muted });
+  audio.setMuted(settings.muted);
+  muteIcon.textContent = settings.muted ? '🔇' : '🔊';
+}
+muteIcon.textContent = settings.muted ? '🔇' : '🔊';
+
+/** Every ad is wrapped so the game is silent for its whole duration. */
+async function withAdSilence(showAd) {
+  try {
+    return await showAd(() => audio.duck(true));
+  } finally {
+    audio.duck(false);
+  }
+}
 const minimap = new Minimap(document.getElementById('minimap'), track);
 const input = new Input();
 const touch = new TouchControls(document.getElementById('touch'));
@@ -134,7 +160,7 @@ const menu = new Menu({
     onSingleStart: () => startSinglePlayer(),
     onSettingsSave: (patch) => { saveSettings(patch); applyQuality(settings.quality); menu.showMain(); },
     onWatchAdForColors: async () => {
-      const unlocked = await poki.rewardedBreak();
+      const unlocked = await withAdSilence(poki.rewardedBreak);
       if (unlocked) saveSettings({ premiumColorsUnlocked: true });
       return unlocked;
     },
@@ -419,7 +445,7 @@ let racesStarted = 0;
 
 async function beginCountdownWithAd(seconds) {
   // never open a session with an ad — the player hasn't played anything yet
-  if (racesStarted++ > 0) await poki.commercialBreak();
+  if (racesStarted++ > 0) await withAdSilence(poki.commercialBreak);
   beginCountdown(seconds);
   showTutorial(__POKI__ && settings.racesFinished === 0);
 }
@@ -494,7 +520,7 @@ async function resume() {
   if (resuming) return;
   resuming = true;
   try {
-    await poki.commercialBreak();
+    await withAdSilence(poki.commercialBreak);
   } finally {
     resuming = false;
   }
@@ -527,6 +553,7 @@ function finish() {
   touch.show(false);
   poki.gameplayStop();
   showTutorial(false);
+  audio.jingle(session.race.player.position);
   const race = session.race;
   const multiplayer = !!session.netRole;
   const autoNext = __POKI__ && !multiplayer;
@@ -611,6 +638,7 @@ function step(dt) {
         lastCount = n;
         if (n > 0) hud.message(String(n), { hold: 1 });
         else hud.message('GO', { hold: 0.9 });
+        audio.beep(n <= 0);
       }
       if (state.countdown <= 0) {
         state.phase = 'racing';
@@ -668,6 +696,8 @@ function step(dt) {
     sun.target.updateMatrixWorld();
   }
 
+  // outside the racing block so pause / results / menu fade the engine out
+  audio.update(dt, session?.player, ctrl, state.phase);
   renderer.render(scene, camera);
 }
 
@@ -695,12 +725,15 @@ if (useTouch && window.matchMedia) {
   portrait.addEventListener?.('change', onOrientation);
 }
 
+// not while typing a driver name in Settings
+input.bind('m', () => { if (document.activeElement?.tagName !== 'INPUT') toggleMute(); });
 document.getElementById('camChip').onclick = () => hud.setCamera(chase.cycle());
+document.getElementById('muteChip').onclick = toggleMute;
 document.getElementById('pauseChip').onclick = () => (state.phase === 'racing' ? pause() : resume());
 
 if (DEBUG) {
   window.__game = {
-    world, track, state, chase, step, input, hud, touch, renderer, scene, camera, sun, THREE,
+    world, track, state, chase, step, input, hud, touch, renderer, scene, camera, sun, THREE, audio,
     get race() { return session?.race; },
     get entries() { return session?.entries; },
     get player() { return session?.player; },
