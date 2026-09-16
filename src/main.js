@@ -11,7 +11,7 @@ import { Input } from './input.js';
 import { Hud } from './hud.js';
 import { Minimap } from './minimap.js';
 import { Menu } from './ui/menu.js';
-import { settings, saveSettings, skillValue, QUALITY_PRESETS } from './settings.js';
+import { settings, saveSettings, skillValue, QUALITY_PRESETS, QUALITY_STEP_DOWN } from './settings.js';
 import * as poki from './poki.js';
 import { TouchControls, isTouchDevice } from './touch.js';
 import { GameAudio } from './audio.js';
@@ -93,8 +93,11 @@ function applyConditions(name) {
   applyFog();
 }
 
+let qualityName = 'high';
+
 function applyQuality(q) {
   const preset = QUALITY_PRESETS[q] ?? QUALITY_PRESETS.high;
+  qualityName = QUALITY_PRESETS[q] ? q : 'high';
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.pixelRatio));
   renderer.shadowMap.enabled = preset.shadows;
   sun.castShadow = preset.shadows;
@@ -783,6 +786,37 @@ function escapeText(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// ---------------------------------------------------------------- adaptive quality
+// A phone that can't hold the frame rate it started with is exactly the kind
+// of first-race experience that makes a new player bounce, and the "quality"
+// heuristics at boot (touch + screen size, deviceMemory/cores) are guesses —
+// this watches the real frame time and steps the preset down if it's slow,
+// then remembers the choice so the next session starts there instead of
+// re-discovering the same problem.
+const PERF_WINDOW = 3;          // seconds of sustained bad frames before downgrading
+const PERF_FPS_FLOOR = 24;      // below this, frames are dropped often enough to feel bad
+let perfBadTime = 0;
+let perfCheckedAt = 0;
+
+function maybeDowngradeQuality(dt, now) {
+  if (qualityName === 'potato') return;             // nothing cheaper to fall back to
+  if (state.phase !== 'racing' && state.phase !== 'countdown') { perfBadTime = 0; return; }
+  // A backgrounded tab, GC pause, or the ad/pause overlay can produce one huge
+  // dt that isn't a real "device is too slow" signal — ignore those rather
+  // than let a single stutter count for multiple seconds of bad frames.
+  if (dt <= 0 || dt > 0.35 || document.hidden) return;
+  const fps = 1 / dt;
+  perfBadTime = fps < PERF_FPS_FLOOR ? perfBadTime + dt : Math.max(0, perfBadTime - dt * 2);
+  if (perfBadTime < PERF_WINDOW) return;
+  if (now - perfCheckedAt < 500) return;   // one downgrade per stumble, not one per frame
+  perfCheckedAt = now;
+  perfBadTime = 0;
+  const next = QUALITY_STEP_DOWN[qualityName];
+  if (next === qualityName) return;
+  applyQuality(next);
+  saveSettings({ quality: next });
+}
+
 // ---------------------------------------------------------------- loop
 const IDLE_CTRL = { throttle: 0, brake: 1, steer: 0, handbrake: true };
 let acc = 0;
@@ -880,10 +914,12 @@ function step(dt) {
 
 function frame(now) {
   requestAnimationFrame(frame);
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const rawDt = (now - last) / 1000;
+  const dt = Math.min(0.05, rawDt);
   last = now;
   if (dt <= 0) return;
   step(dt);
+  maybeDowngradeQuality(rawDt, now);
 }
 
 input.bind('c', () => { if (state.phase === 'racing') hud.setCamera(chase.cycle()); });
@@ -918,6 +954,9 @@ if (DEBUG) {
     setControls: (c) => { ctrlOverride = c; if (c) input.enabled = false; },
     sim: (seconds, dt = 1 / 60) => { for (let i = 0; i < Math.round(seconds / dt); i++) step(dt); },
     start: () => startSinglePlayer(),
+    get qualityName() { return qualityName; },
+    maybeDowngradeQuality,
+    applyQuality,
   };
 }
 

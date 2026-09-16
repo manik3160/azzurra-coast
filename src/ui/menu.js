@@ -2,7 +2,8 @@ import { formatTime } from '../race.js';
 import * as career from '../career.js';
 
 const SKILLS = ['easy', 'normal', 'hard', 'pro'];
-const QUALITIES = ['low', 'medium', 'high'];
+const QUALITIES = ['potato', 'low', 'medium', 'high'];
+const QUALITY_LABEL = { potato: 'Very low', low: 'Low', medium: 'Medium', high: 'High' };
 const BASE_COLORS = [0xb6e832, 0xe0472c, 0x2f7fd8, 0xe0872a];
 const PREMIUM_COLORS = [0xc9337a, 0x3fa7a0, 0xf3d33a, 0xffffff];
 
@@ -285,7 +286,7 @@ function swatchBtn(c, selected, locked) {
 }
 
 function opts(list, current) {
-  return list.map((v) => `<option value="${v}" ${v === current ? 'selected' : ''}>${v}</option>`).join('');
+  return list.map((v) => `<option value="${v}" ${v === current ? 'selected' : ''}>${QUALITY_LABEL[v] ?? v}</option>`).join('');
 }
 
 function escapeHtml(s) {
